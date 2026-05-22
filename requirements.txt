@@ -1,22 +1,10 @@
-# Voice Agent — Python Dependencies
-# Install with: pip install -r requirements.txt
+# Voice Agent Dependencies
 
-# Audio capture
 PyAudio==0.2.14
-
-# Speech-to-text (runs locally, downloads model on first use)
 openai-whisper>=20231117
-
-# Text-to-speech (fully offline)
 pyttsx3>=2.90
-
-# Numerical processing (silence detection)
 numpy>=1.24
-
-# Whisper needs torch (CPU is fine for base/small models)
-# Install the CPU-only build to save space:
-# pip install torch --index-url https://download.pytorch.org/whl/cpu
+scipy>=1.10
 torch>=2.0.0
-
-# Optional — better audio quality TTS (needs internet):
-# edge-tts>=6.1.9
+torchvision>=0.15.0
+torchaudio>=2.0.0
