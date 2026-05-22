@@ -3,8 +3,9 @@ Main intent router for the voice agent.
 
 Responsible for:
 - intent classification
-- dispatching requests
-- returning final response text
+- request routing
+- short-term memory
+- response generation
 """
 
 import datetime
@@ -15,7 +16,7 @@ from utils.logger import log
 
 
 # Intent patterns
-# Order matters: more specific checks should happen first
+# More specific checks should come first
 
 MATH_TRIGGERS = re.compile(
     r"\b("
@@ -44,7 +45,7 @@ TIME_TRIGGERS = re.compile(
 )
 
 STOP_TRIGGERS = re.compile(
-    r"^(stop|quit|exit|bye|goodbye|shut down|shutdown|turn off)\b",
+    r"^(stop|quit|exit|goodbye|shut down|shutdown|turn off)\s*$",
     re.I,
 )
 
@@ -58,12 +59,18 @@ class AgentProcessor:
 
     def __init__(self):
 
+        # Lightweight conversation memory
+        self.memory = {
+            "last_result": None,
+            "last_input": None,
+        }
+
         log("AgentProcessor initialized")
 
     # ---------------------------------------------------------
     def process(self, text: str) -> str:
         """
-        Process transcribed user input
+        Process user input
         and return a response string.
         """
 
@@ -76,7 +83,7 @@ class AgentProcessor:
             level="debug"
         )
 
-        # Exit signal
+        # Exit command
         if intent == "STOP":
             return "__EXIT__"
 
@@ -84,32 +91,24 @@ class AgentProcessor:
         if intent == "GREETING":
             return self._handle_greeting()
 
-        # Time/date queries
+        # Time / date queries
         if intent == "TIME":
             return self._handle_time()
 
-        # Help menu
+        # Help command
         if intent == "HELP":
             return self._handle_help()
 
-        # Math queries
+        # Math handling
         if intent == "MATH":
             return self._handle_math(text)
-
-        # Future crypto intents can be added here
-        #
-        # if intent == "PRICE":
-        #     return crypto_handler.price(...)
-        #
-        # if intent == "BALANCE":
-        #     return crypto_handler.balance(...)
 
         return self._handle_unknown()
 
     # ---------------------------------------------------------
     def _classify(self, text: str) -> str:
         """
-        Basic intent classification.
+        Basic rule-based intent classification.
         """
 
         if STOP_TRIGGERS.search(text):
@@ -128,7 +127,7 @@ class AgentProcessor:
             return "MATH"
 
         # Fallback:
-        # treat anything containing numbers as math
+        # treat anything containing digits as math
         if re.search(r"\d", text):
             return "MATH"
 
@@ -154,10 +153,9 @@ class AgentProcessor:
 
         time_str = now.strftime("%I:%M %p").lstrip("0")
 
-        date_str = now.strftime("%A, %B %d").replace(
-            " 0",
-            " "
-        )
+        date_str = now.strftime(
+            "%A, %B %d"
+        ).replace(" 0", " ")
 
         return f"It's {time_str} on {date_str}."
 
@@ -172,10 +170,36 @@ class AgentProcessor:
 
     # ---------------------------------------------------------
     def _handle_math(self, text: str) -> str:
+        """
+        Handle math queries with short-term memory.
+        """
+
+        # Support contextual references
+        # Example:
+        # "multiply that by 2"
+
+        if "that" in text.lower():
+
+            last_result = self.memory.get(
+                "last_result"
+            )
+
+            if last_result is not None:
+
+                text = text.lower().replace(
+                    "that",
+                    str(last_result)
+                )
 
         result = handle_math(text)
 
         if result is not None:
+
+            # Save latest interaction
+            self.memory["last_result"] = result
+
+            self.memory["last_input"] = text
+
             return f"The answer is {result}."
 
         return (

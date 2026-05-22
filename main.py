@@ -24,7 +24,7 @@ def main():
 
     # Whisper model options:
     # tiny | base | small | medium
-    stt = WhisperSTT(model_size="base")
+    stt = WhisperSTT(model_size="small")
 
     tts = TTSEngine()
 

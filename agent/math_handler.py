@@ -1,8 +1,13 @@
 """
 Math query handler for the voice agent.
 
-Converts spoken math into valid expressions
-and evaluates them safely.
+Supports:
+- natural math phrases
+- contextual memory math
+- percentages
+- factorials
+- powers
+- safe evaluation
 """
 
 import math
@@ -11,21 +16,29 @@ import re
 from utils.logger import log
 
 
-# Basic spoken-word replacements
+# ---------------------------------------------------------
+# Spoken word replacements
+# ---------------------------------------------------------
+
 WORD_MAP = {
 
     # Operators
     r"\bplus\b": "+",
     r"\bminus\b": "-",
+
     r"\btimes\b": "*",
+
     r"\bmultiplied by\b": "*",
+
     r"\bdivided by\b": "/",
+
     r"\bover\b": "/",
 
     # Powers
     r"\bto the power of\b": "**",
     r"\bto the power\b": "**",
     r"\bpow\b": "**",
+
     r"\bsquared\b": "**2",
     r"\bcubed\b": "**3",
 
@@ -52,7 +65,10 @@ WORD_MAP = {
 }
 
 
-# Common spoken patterns
+# ---------------------------------------------------------
+# Special phrase patterns
+# ---------------------------------------------------------
+
 SQRT_PATTERN = re.compile(
     r"square\s*root\s*of\s*([\d.]+)",
     re.I
@@ -68,16 +84,36 @@ FACTORIAL_PATTERN = re.compile(
     re.I
 )
 
+MULTIPLY_PATTERN = re.compile(
+    r"(?:multiply|times)\s+([\d.]+)\s+(?:by\s+)?([\d.]+)",
+    re.I
+)
 
+DIVIDE_PATTERN = re.compile(
+    r"(?:divide|divided)\s+([\d.]+)\s+(?:by\s+)?([\d.]+)",
+    re.I
+)
+
+SUBTRACT_PATTERN = re.compile(
+    r"subtract\s+([\d.]+)\s+(?:from|by)\s+([\d.]+)",
+    re.I
+)
+
+ADD_PATTERN = re.compile(
+    r"add\s+([\d.]+)\s+(?:to\s+)?([\d.]+)",
+    re.I
+)
+
+
+# ---------------------------------------------------------
 def handle_math(text: str) -> str | None:
     """
-    Try to evaluate a spoken math query.
-    Returns a formatted result or None.
+    Parse and evaluate spoken math.
     """
 
     t = text.lower().strip()
 
-    # Remove common conversational prefixes
+    # Remove conversational prefixes
     prefixes = [
         "what is",
         "what's",
@@ -87,31 +123,35 @@ def handle_math(text: str) -> str | None:
         "how much is",
         "tell me",
         "give me",
+        "can you",
+        "please",
     ]
 
     for prefix in prefixes:
         t = t.removeprefix(prefix).strip()
 
-    # ----------------------------------------
-    # Special cases
-    # ----------------------------------------
+    # -----------------------------------------------------
+    # Special math handlers
+    # -----------------------------------------------------
 
     # Square root
     match = SQRT_PATTERN.search(t)
 
     if match:
+
         value = float(match.group(1))
 
-        result = math.sqrt(value)
+        return _format_result(
+            math.sqrt(value)
+        )
 
-        return _format_result(result)
-
-    # Percent calculation
+    # Percentages
     match = PERCENT_PATTERN.search(t)
 
     if match:
 
         percent = float(match.group(1))
+
         total = float(match.group(2))
 
         result = (percent / 100) * total
@@ -125,15 +165,68 @@ def handle_math(text: str) -> str | None:
 
         value = int(match.group(1))
 
-        # Prevent absurdly large values
         if value > 20:
             return "That factorial is too large."
 
         return str(math.factorial(value))
 
-    # ----------------------------------------
-    # Convert spoken words to operators
-    # ----------------------------------------
+    # Multiply
+    match = MULTIPLY_PATTERN.search(t)
+
+    if match:
+
+        a = float(match.group(1))
+
+        b = float(match.group(2))
+
+        return _format_result(a * b)
+
+    # Divide
+    match = DIVIDE_PATTERN.search(t)
+
+    if match:
+
+        a = float(match.group(1))
+
+        b = float(match.group(2))
+
+        if b == 0:
+            return "Division by zero is not allowed."
+
+        return _format_result(a / b)
+
+    # Subtract
+    match = SUBTRACT_PATTERN.search(t)
+
+    if match:
+
+        a = float(match.group(1))
+
+        b = float(match.group(2))
+
+        # Handle:
+        # subtract 2 from 10
+        if "from" in t:
+            return _format_result(b - a)
+
+        # Handle:
+        # subtract 10 by 2
+        return _format_result(a - b)
+
+    # Add
+    match = ADD_PATTERN.search(t)
+
+    if match:
+
+        a = float(match.group(1))
+
+        b = float(match.group(2))
+
+        return _format_result(a + b)
+
+    # -----------------------------------------------------
+    # Word replacement
+    # -----------------------------------------------------
 
     for pattern, replacement in WORD_MAP.items():
 
@@ -144,22 +237,26 @@ def handle_math(text: str) -> str | None:
             flags=re.I
         )
 
-    # Keep only valid math characters
+    # Keep only safe math characters
     t = re.sub(
         r"[^0-9+\-*/().%\s]",
         "",
         t
     ).strip()
 
-    # Remove remaining spaces
-    t = re.sub(r"\s+", "", t)
+    # Remove spaces
+    t = re.sub(
+        r"\s+",
+        "",
+        t
+    )
 
     if not t:
         return None
 
-    # ----------------------------------------
-    # Evaluate expression
-    # ----------------------------------------
+    # -----------------------------------------------------
+    # Safe evaluation
+    # -----------------------------------------------------
 
     try:
 
@@ -178,9 +275,9 @@ def handle_math(text: str) -> str | None:
 
 
 # ---------------------------------------------------------
-def _safe_eval(expr: str) -> float:
+def _safe_eval(expr: str):
     """
-    Evaluate a restricted math expression safely.
+    Evaluate restricted expressions safely.
     """
 
     allowed = re.compile(
@@ -188,9 +285,16 @@ def _safe_eval(expr: str) -> float:
     )
 
     if not allowed.match(expr):
-        raise ValueError(f"Unsafe expression: {expr}")
 
-    code = compile(expr, "<string>", "eval")
+        raise ValueError(
+            f"Unsafe expression: {expr}"
+        )
+
+    code = compile(
+        expr,
+        "<string>",
+        "eval"
+    )
 
     return eval(
         code,
@@ -202,7 +306,7 @@ def _safe_eval(expr: str) -> float:
 # ---------------------------------------------------------
 def _format_result(value):
     """
-    Clean up float formatting for speech output.
+    Format results for cleaner speech output.
     """
 
     if isinstance(value, float) and value.is_integer():
