@@ -1,28 +1,50 @@
-# Voice Agent
+# Setup
 
-Offline conversational AI voice assistant built with Python.
+## 1. Clone Repository
 
-## Features
+```bash
+git clone https://github.com/Suhaimz11/voice-agent.git
+cd voice-agent
+```
 
-- Real-time microphone recording
-- Speech-to-text using Whisper
-- Offline text-to-speech
-- Silence detection
-- Modular architecture
+---
 
-## Tech Stack
+## 2. Create Virtual Environment
 
-- Python
-- PyAudio
-- Whisper
-- pyttsx3
-- FFmpeg
+```bash
+python -m venv .venv
+```
 
-## Pipeline
+---
 
-Mic → STT → Agent → TTS
+## 3. Activate Virtual Environment
 
-## Run
+```bash
+source .venv/bin/activate
+```
+
+---
+
+## 4. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 5. Install FFmpeg
+
+Verify FFmpeg installation:
+
+```bash
+ffmpeg -version
+```
+
+---
+
+## 6. Run Voice Agent
 
 ```bash
 python main.py
+```
