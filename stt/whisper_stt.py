@@ -1,47 +1,80 @@
 """
-stt/whisper_stt.py
-Wraps OpenAI Whisper for local speech-to-text transcription.
-Model sizes:  tiny(~40MB) | base(~140MB) | small(~460MB) | medium(~1.5GB)
+Whisper speech-to-text wrapper.
+
+Loads a local Whisper model and
+transcribes recorded audio into text.
 """
 
 import os
+
 import whisper
+
 from utils.logger import log
 
 
 class WhisperSTT:
+
     def __init__(self, model_size: str = "base"):
         """
-        Load Whisper model. First run downloads the weights automatically.
-        Recommended: 'base' for speed, 'small' for better accuracy.
-        """
-        log(f"Loading Whisper model '{model_size}'... (first run downloads weights)")
-        self.model = whisper.load_model(model_size)
-        log(f"Whisper '{model_size}' loaded ✓")
+        Load Whisper model during startup.
 
-    # ------------------------------------------------------------------
-    def transcribe(self, audio_path: str, language: str = "en") -> str:
+        Available models:
+        tiny   -> fastest
+        base   -> balanced
+        small  -> better accuracy
+        medium -> slower but more accurate
         """
-        Transcribe WAV file → string.
-        language: ISO code, e.g. 'en', 'de', 'fr'. None = auto-detect.
+
+        log(
+            f"Loading Whisper model '{model_size}'..."
+        )
+
+        self.model = whisper.load_model(model_size)
+
+        log(
+            f"Whisper '{model_size}' loaded ✓"
+        )
+
+    # ---------------------------------------------------------
+    def transcribe(
+        self,
+        audio_path: str,
+        language: str = "en"
+    ) -> str:
         """
+        Convert audio file into text.
+        """
+
         try:
+
             result = self.model.transcribe(
                 audio_path,
+
+                # Set to None for auto-detection
                 language=language,
-                fp16=False,          # set True if you have a CUDA GPU
+
+                # Enable if CUDA GPU is available
+                fp16=False,
+
                 verbose=False,
             )
+
             text = result["text"].strip()
 
-            # Clean up temp file
+            # Cleanup temp audio file
             try:
                 os.remove(audio_path)
+
             except Exception:
                 pass
 
             return text
 
         except Exception as e:
-            log(f"Whisper transcription error: {e}", level="error")
+
+            log(
+                f"Whisper transcription error: {e}",
+                level="error"
+            )
+
             return ""

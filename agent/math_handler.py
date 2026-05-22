@@ -1,140 +1,214 @@
 """
-agent/math_handler.py
-Handles spoken math expressions safely.
-Converts spoken words → expression → evaluates → spoken result.
+Math query handler for the voice agent.
 
-Examples handled:
-  "what is 25 plus 17"            → 42
-  "calculate 100 divided by 4"    → 25.0
-  "what's the square root of 144" → 12.0
-  "8 to the power of 3"           → 512
-  "15 percent of 200"             → 30.0
+Converts spoken math into valid expressions
+and evaluates them safely.
 """
 
-import re
 import math
+import re
+
 from utils.logger import log
 
 
-# Words → symbols
+# Basic spoken-word replacements
 WORD_MAP = {
-    # Operators
-    r"\bplus\b":              "+",
-    r"\bminus\b":             "-",
-    r"\btimes\b":             "*",
-    r"\bmultiplied by\b":     "*",
-    r"\bdivided by\b":        "/",
-    r"\bover\b":              "/",
-    r"\bto the power of\b":   "**",
-    r"\bto the power\b":      "**",
-    r"\bpow\b":               "**",
-    r"\bsquared\b":           "**2",
-    r"\bcubed\b":             "**3",
-    r"\bmod\b":               "%",
-    r"\bmodulo\b":            "%",
-    r"\bmodulus\b":           "%",
 
-    # Number words (basic)
-    r"\bzero\b":  "0",
-    r"\bone\b":   "1",
-    r"\btwo\b":   "2",
+    # Operators
+    r"\bplus\b": "+",
+    r"\bminus\b": "-",
+    r"\btimes\b": "*",
+    r"\bmultiplied by\b": "*",
+    r"\bdivided by\b": "/",
+    r"\bover\b": "/",
+
+    # Powers
+    r"\bto the power of\b": "**",
+    r"\bto the power\b": "**",
+    r"\bpow\b": "**",
+    r"\bsquared\b": "**2",
+    r"\bcubed\b": "**3",
+
+    # Modulo
+    r"\bmod\b": "%",
+    r"\bmodulo\b": "%",
+    r"\bmodulus\b": "%",
+
+    # Number words
+    r"\bzero\b": "0",
+    r"\bone\b": "1",
+    r"\btwo\b": "2",
     r"\bthree\b": "3",
-    r"\bfour\b":  "4",
-    r"\bfive\b":  "5",
-    r"\bsix\b":   "6",
+    r"\bfour\b": "4",
+    r"\bfive\b": "5",
+    r"\bsix\b": "6",
     r"\bseven\b": "7",
     r"\beight\b": "8",
-    r"\bnine\b":  "9",
-    r"\bten\b":   "10",
+    r"\bnine\b": "9",
+    r"\bten\b": "10",
 
-    # Misc
-    r"\band\b":   "",  # "one hundred and twenty" → strip "and"
+    # Cleanup
+    r"\band\b": "",
 }
 
-# Special function patterns (handled before general eval)
-SQRT_PATTERN    = re.compile(r"square\s*root\s*of\s*([\d.]+)", re.I)
-PERCENT_PATTERN = re.compile(r"([\d.]+)\s*percent\s*of\s*([\d.]+)", re.I)
-FACTORIAL_PATTERN = re.compile(r"factorial\s*(?:of\s*)?([\d]+)", re.I)
+
+# Common spoken patterns
+SQRT_PATTERN = re.compile(
+    r"square\s*root\s*of\s*([\d.]+)",
+    re.I
+)
+
+PERCENT_PATTERN = re.compile(
+    r"([\d.]+)\s*percent\s*of\s*([\d.]+)",
+    re.I
+)
+
+FACTORIAL_PATTERN = re.compile(
+    r"factorial\s*(?:of\s*)?([\d]+)",
+    re.I
+)
 
 
 def handle_math(text: str) -> str | None:
     """
-    Try to extract and evaluate a math expression from the text.
-    Returns a human-readable answer string, or None if not a math query.
+    Try to evaluate a spoken math query.
+    Returns a formatted result or None.
     """
+
     t = text.lower().strip()
 
-    # Strip common preamble
-    for prefix in ["what is", "what's", "calculate", "compute", "evaluate",
-                   "how much is", "tell me", "give me"]:
+    # Remove common conversational prefixes
+    prefixes = [
+        "what is",
+        "what's",
+        "calculate",
+        "compute",
+        "evaluate",
+        "how much is",
+        "tell me",
+        "give me",
+    ]
+
+    for prefix in prefixes:
         t = t.removeprefix(prefix).strip()
 
-    # --- Special cases first ---
+    # ----------------------------------------
+    # Special cases
+    # ----------------------------------------
 
     # Square root
-    m = SQRT_PATTERN.search(t)
-    if m:
-        n = float(m.group(1))
-        result = math.sqrt(n)
+    match = SQRT_PATTERN.search(t)
+
+    if match:
+        value = float(match.group(1))
+
+        result = math.sqrt(value)
+
         return _format_result(result)
 
-    # Percent of
-    m = PERCENT_PATTERN.search(t)
-    if m:
-        pct, total = float(m.group(1)), float(m.group(2))
-        result = (pct / 100) * total
+    # Percent calculation
+    match = PERCENT_PATTERN.search(t)
+
+    if match:
+
+        percent = float(match.group(1))
+        total = float(match.group(2))
+
+        result = (percent / 100) * total
+
         return _format_result(result)
 
     # Factorial
-    m = FACTORIAL_PATTERN.search(t)
-    if m:
-        n = int(m.group(1))
-        if n > 20:
-            return "That factorial is astronomically large."
-        return str(math.factorial(n))
+    match = FACTORIAL_PATTERN.search(t)
 
-    # --- Word substitution ---
+    if match:
+
+        value = int(match.group(1))
+
+        # Prevent absurdly large values
+        if value > 20:
+            return "That factorial is too large."
+
+        return str(math.factorial(value))
+
+    # ----------------------------------------
+    # Convert spoken words to operators
+    # ----------------------------------------
+
     for pattern, replacement in WORD_MAP.items():
-        t = re.sub(pattern, replacement, t, flags=re.I)
 
-    # Remove leftover words, keep: digits, operators, parens, decimal point, spaces
-    t = re.sub(r"[^0-9+\-*/().**%.\s]", "", t).strip()
-    t = re.sub(r"\s+", "", t)  # remove spaces
+        t = re.sub(
+            pattern,
+            replacement,
+            t,
+            flags=re.I
+        )
+
+    # Keep only valid math characters
+    t = re.sub(
+        r"[^0-9+\-*/().%\s]",
+        "",
+        t
+    ).strip()
+
+    # Remove remaining spaces
+    t = re.sub(r"\s+", "", t)
 
     if not t:
         return None
 
-    # --- Safe eval ---
+    # ----------------------------------------
+    # Evaluate expression
+    # ----------------------------------------
+
     try:
+
         result = _safe_eval(t)
+
         return _format_result(result)
+
     except Exception as e:
-        log(f"Math eval failed for '{t}': {e}", level="debug")
+
+        log(
+            f"Math eval failed for '{t}': {e}",
+            level="debug"
+        )
+
         return None
 
 
-# ------------------------------------------------------------------
+# ---------------------------------------------------------
 def _safe_eval(expr: str) -> float:
     """
-    Evaluate only math expressions. Raises on anything non-numeric.
-    Uses compile() to restrict to expressions, then eval with empty builtins.
+    Evaluate a restricted math expression safely.
     """
-    # Extra safety: only allow safe characters
-    allowed = re.compile(r"^[0-9+\-*/().%\s\*]+$")
+
+    allowed = re.compile(
+        r"^[0-9+\-*/().%\s\*]+$"
+    )
+
     if not allowed.match(expr):
         raise ValueError(f"Unsafe expression: {expr}")
 
     code = compile(expr, "<string>", "eval")
 
-    # Whitelist allowed names (none needed for pure math)
-    result = eval(code, {"__builtins__": {}}, {})
-    return result
+    return eval(
+        code,
+        {"__builtins__": {}},
+        {}
+    )
 
 
-def _format_result(value) -> str:
-    """Return int if whole number, else float with up to 6 sig digits."""
+# ---------------------------------------------------------
+def _format_result(value):
+    """
+    Clean up float formatting for speech output.
+    """
+
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
+
     if isinstance(value, float):
         return f"{value:.6g}"
+
     return str(value)

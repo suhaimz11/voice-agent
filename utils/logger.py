@@ -1,22 +1,37 @@
 """
-utils/logger.py
-Simple console logger with levels.
-Set DEBUG=True for verbose output during development.
+Lightweight console logger used across the project.
 """
 
 import datetime
 
-DEBUG = False   # set True to see all debug logs
+
+# Enable verbose logs during development
+DEBUG = False
 
 
 def log(msg: str, level: str = "info"):
+    """
+    Print formatted log messages with timestamps.
+    """
+
+    # Skip debug logs unless enabled
     if level == "debug" and not DEBUG:
         return
-    prefix = {
-        "info":    "  ℹ️ ",
-        "debug":   "  🔍",
-        "warning": "  ⚠️ ",
-        "error":   "  ❌",
-    }.get(level, "  ")
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-    print(f"[{timestamp}] {prefix} {msg}")
+
+    prefixes = {
+        "info": "ℹ️",
+        "debug": "🔍",
+        "warning": "⚠️",
+        "error": "❌",
+    }
+
+    prefix = prefixes.get(level, "•")
+
+    timestamp = datetime.datetime.now().strftime(
+        "%H:%M:%S"
+    )
+
+    print(
+        f"[{timestamp}] "
+        f"{prefix} {msg}"
+    )
