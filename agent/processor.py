@@ -12,6 +12,7 @@ import datetime
 import re
 
 from agent.math_handler import handle_math
+from agent.llm_handler import ask_llm
 from utils.logger import log
 
 
@@ -103,7 +104,7 @@ class AgentProcessor:
         if intent == "MATH":
             return self._handle_math(text)
 
-        return self._handle_unknown()
+        return ask_llm(text)
 
     # ---------------------------------------------------------
     def _classify(self, text: str) -> str:
