@@ -21,7 +21,7 @@ from utils.logger import log
 
 MATH_TRIGGERS = re.compile(
     r"\b("
-    r"what is|what's|calculate|compute|evaluate|"
+    r"calculate|compute|evaluate|"
     r"how much is|plus|minus|times|divided|"
     r"multiply|add|subtract|square root|"
     r"factorial|percent|power|squared|cubed"
