@@ -2,7 +2,10 @@
 Main entry point for the voice agent.
 
 Flow:
-Mic -> Speech-to-Text -> Agent -> Text-to-Speech
+Wake Word
+→ Speech-to-Text
+→ LLM / Agent
+→ Text-to-Speech
 """
 
 import time
@@ -14,7 +17,10 @@ from agent.processor import AgentProcessor
 from wakeword.detector import WakeWordDetector
 from utils.logger import log
 
-wakeword = WakeWordDetector()
+
+# Time before assistant goes back to sleep
+SESSION_TIMEOUT = 6
+
 
 def main():
 
@@ -24,52 +30,109 @@ def main():
     # Core components
     recorder = AudioRecorder()
 
-    # Whisper model options:
-    # tiny | base | small | medium
-    stt = WhisperSTT(model_size="small")
+    stt = WhisperSTT(
+        model_size="small"
+    )
 
     tts = TTSEngine()
 
     agent = AgentProcessor()
 
-    print("✅ System ready. Say something...\n")
+    wakeword = WakeWordDetector()
 
-    # Startup voice check
-    tts.speak("Voice agent ready. How can I help you?")
+    print("✅ System ready.\n")
+
+    tts.speak(
+        "Voice agent ready."
+    )
+
+    # Assistant state
+    assistant_active = False
+
+    last_activity_time = 0
+
+    # -----------------------------------------------------
+    # Main loop
+    # -----------------------------------------------------
 
     while True:
 
         try:
-            wakeword.listen()
-            # Wait for user input
+
+            # ---------------------------------------------
+            # Sleep mode
+            # ---------------------------------------------
+
+            if not assistant_active:
+
+                print("👂 Waiting for wake word...")
+
+                wakeword.listen()
+
+                assistant_active = True
+
+                last_activity_time = time.time()
+
+                print("🟢 Assistant active")
+
+            # ---------------------------------------------
+            # Active session
+            # ---------------------------------------------
+
             print("🎤 Listening...")
 
             audio_path = recorder.record_until_silence()
 
+            # No speech detected
             if audio_path is None:
+
+                # Session timeout
+                if (
+                    time.time() - last_activity_time
+                    > SESSION_TIMEOUT
+                ):
+
+                    assistant_active = False
+
+                    print("😴 Assistant sleeping")
+
                 continue
 
-            # Convert speech to text
+            # User spoke
+            last_activity_time = time.time()
+
+            # ---------------------------------------------
+            # Speech-to-text
+            # ---------------------------------------------
+
             print("📝 Transcribing...")
 
             text = stt.transcribe(audio_path)
 
             if not text or len(text.strip()) < 2:
-                print("(no speech detected)\n")
+
                 continue
 
             print(f"👤 You: {text}")
 
-            # Generate response
+            # ---------------------------------------------
+            # Agent response
+            # ---------------------------------------------
+
             response = agent.process(text)
 
             print(f"🤖 Agent: {response}\n")
 
-            # Speak response
+            # ---------------------------------------------
+            # Text-to-speech
+            # ---------------------------------------------
+
             tts.speak(response)
 
-            # Small cooldown before next cycle
-            time.sleep(0.3)
+            # Small cooldown after speaking
+            print("⏳ Cooldown...")
+
+            time.sleep(2)
 
         except KeyboardInterrupt:
 
@@ -88,4 +151,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()

@@ -19,7 +19,7 @@ class WakeWordDetector:
 
         self.model = Model(
             inference_framework="onnx"
-    )
+        )
 
         self.sample_rate = 16000
 
@@ -50,7 +50,9 @@ class WakeWordDetector:
 
         print("👂 Waiting for wake word...")
 
-        with sd.InputStream(
+        detected = False
+
+        stream = sd.InputStream(
 
             samplerate=self.sample_rate,
 
@@ -62,9 +64,13 @@ class WakeWordDetector:
 
             callback=self._audio_callback
 
-        ):
+        )
 
-            while True:
+        stream.start()
+
+        try:
+
+            while not detected:
 
                 audio = self.audio_queue.get()
 
@@ -83,4 +89,19 @@ class WakeWordDetector:
                             f"🟢 Wake word detected: {name}"
                         )
 
-                        return True
+                        # Clear old audio frames
+                        with self.audio_queue.mutex:
+                            self.audio_queue.queue.clear()
+
+                        detected = True
+
+                        break
+
+        finally:
+
+            # Stop microphone stream completely
+            stream.stop()
+
+            stream.close()
+
+        return True
