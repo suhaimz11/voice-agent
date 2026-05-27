@@ -23,9 +23,9 @@ class AudioRecorder:
         chunk_size: int = 1024,
         channels: int = 1,
         silence_threshold: float = 500,
-        silence_duration: float = 1.5,
-        no_speech_timeout: float = 1.0,
-        max_record_seconds: float = 30.0,
+        silence_duration: float = 2.5,
+        no_speech_timeout: float = 4.0,
+        max_record_seconds: float = 45.0,
     ):
 
         # Whisper performs best at 16kHz mono audio
@@ -49,10 +49,19 @@ class AudioRecorder:
 
         self.format = pyaudio.paInt16
 
-        log("AudioRecorder initialized")
+        log(
+            (
+                "AudioRecorder initialized "
+                f"(start_timeout={self.no_speech_timeout}s, "
+                f"end_silence={self.silence_duration}s)"
+            )
+        )
 
     # ---------------------------------------------------------
-    def record_until_silence(self) -> str | None:
+    def record_until_silence(
+        self,
+        no_speech_timeout=None
+    ) -> str | None:
         """
         Start recording from the default microphone
         and stop once silence is detected.
@@ -86,13 +95,24 @@ class AudioRecorder:
             self.silence_duration * chunks_per_second
         )
 
+        effective_no_speech_timeout = (
+            self.no_speech_timeout
+            if no_speech_timeout is None
+            else no_speech_timeout
+        )
+
         no_speech_chunks_needed = int(
-            self.no_speech_timeout * chunks_per_second
+            effective_no_speech_timeout * chunks_per_second
         )
 
         started_at = time.time()
 
-        log("Recording started")
+        log(
+            (
+                "Recording started "
+                f"(start_timeout={effective_no_speech_timeout:.1f}s)"
+            )
+        )
 
         for chunk_index in range(max_chunks):
 

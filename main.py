@@ -83,7 +83,17 @@ def main():
 
             log("Listening for user speech")
 
-            audio_path = recorder.record_until_silence()
+            remaining_session_time = max(
+                0.1,
+                SESSION_TIMEOUT - (time.time() - last_activity_time)
+            )
+
+            audio_path = recorder.record_until_silence(
+                no_speech_timeout=min(
+                    recorder.no_speech_timeout,
+                    remaining_session_time
+                )
+            )
 
             # No speech detected
             if audio_path is None:
