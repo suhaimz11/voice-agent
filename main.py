@@ -11,8 +11,10 @@ from audio.recorder import AudioRecorder
 from stt.whisper_stt import WhisperSTT
 from tts.tts_engine import TTSEngine
 from agent.processor import AgentProcessor
+from wakeword.detector import WakeWordDetector
 from utils.logger import log
 
+wakeword = WakeWordDetector()
 
 def main():
 
@@ -38,6 +40,7 @@ def main():
     while True:
 
         try:
+            wakeword.listen()
             # Wait for user input
             print("🎤 Listening...")
 
