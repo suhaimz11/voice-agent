@@ -1,10 +1,21 @@
 # Voice Agent Dependencies
+# Recommended Python version: 3.11
 
-# Audio input
+# Microphone input and audio streaming
 PyAudio==0.2.14
+sounddevice>=0.4.6
+
+# Wake word detection
+openwakeword==0.5.1
+onnxruntime>=1.18.0
 
 # Speech-to-text
 openai-whisper>=20231117
+
+# PyTorch stack for Whisper
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
 
 # Local text-to-speech
 pyttsx3>=2.90
@@ -13,19 +24,5 @@ pyttsx3>=2.90
 numpy>=1.24
 scipy>=1.10
 
-# PyTorch stack for Whisper
-torch>=2.0.0
-torchvision>=0.15.0
-torchaudio>=2.0.0
-
 # Local LLM runtime
 ollama>=0.3.0
-
-# Wake word detection
-openwakeword==0.5.1
-
-# Audio streaming
-sounddevice>=0.4.6
-
-# ONNX runtime for wake word models
-onnxruntime>=1.18.0
