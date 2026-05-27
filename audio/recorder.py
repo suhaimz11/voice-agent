@@ -5,6 +5,7 @@ Records audio until silence is detected,
 then saves the result as a temporary WAV file.
 """
 
+import time
 import tempfile
 import wave
 
@@ -89,7 +90,9 @@ class AudioRecorder:
             self.no_speech_timeout * chunks_per_second
         )
 
-        print("🎙️ Speak now...")
+        started_at = time.time()
+
+        log("Recording started")
 
         for chunk_index in range(max_chunks):
 
@@ -124,6 +127,13 @@ class AudioRecorder:
                     not speaking
                     and chunk_index >= no_speech_chunks_needed
                 ):
+                    log(
+                        (
+                            "No speech detected "
+                            f"after {time.time() - started_at:.1f}s"
+                        ),
+                        level="debug"
+                    )
                     break
 
                 # Start counting silence only
@@ -145,6 +155,10 @@ class AudioRecorder:
         # Ignore empty recordings
         if not speaking or len(frames) < 5:
             return None
+
+        log(
+            f"Recording stopped after {time.time() - started_at:.1f}s"
+        )
 
         return self._save_wav(frames)
 

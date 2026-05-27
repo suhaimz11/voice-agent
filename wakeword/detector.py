@@ -9,6 +9,7 @@ import numpy as np
 import sounddevice as sd
 
 from openwakeword.model import Model
+from utils.logger import log
 
 
 class WakeWordDetector:
@@ -55,7 +56,7 @@ class WakeWordDetector:
     ):
 
         if status:
-            print(status)
+            log(f"Wake audio stream status: {status}", level="warning")
 
         try:
             self.audio_queue.put_nowait(
@@ -85,7 +86,7 @@ class WakeWordDetector:
     # -----------------------------------------------------
     def listen(self):
 
-        print("Waiting for wake word...")
+        log("Wake listener armed")
 
         self.reset()
 
@@ -139,8 +140,11 @@ class WakeWordDetector:
 
                 if score >= self.threshold:
 
-                    print(
-                        f"Wake word detected: {self.wake_word}"
+                    log(
+                        (
+                            f"Wake word detected: {self.wake_word} "
+                            f"(score={score:.3f})"
+                        )
                     )
 
                     self.reset()

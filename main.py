@@ -27,8 +27,7 @@ RESPONSE_COOLDOWN = 1.0
 
 def main():
 
-    print("\nVoice Agent Starting...")
-    print("=" * 45)
+    log("Voice Agent starting")
 
     # Core components
     recorder = AudioRecorder()
@@ -43,7 +42,7 @@ def main():
 
     wakeword = WakeWordDetector()
 
-    print("System ready.\n")
+    log("System ready")
 
     tts.speak(
         "Voice agent ready."
@@ -68,7 +67,7 @@ def main():
 
             if not assistant_active:
 
-                print("Waiting for wake word...")
+                log("Waiting for wake word")
 
                 wakeword.listen()
 
@@ -76,13 +75,13 @@ def main():
 
                 last_activity_time = time.time()
 
-                print("Assistant active")
+                log("Assistant active")
 
             # ---------------------------------------------
             # Active session
             # ---------------------------------------------
 
-            print("Listening...")
+            log("Listening for user speech")
 
             audio_path = recorder.record_until_silence()
 
@@ -99,7 +98,14 @@ def main():
 
                     wakeword.reset()
 
-                    print("Assistant sleeping")
+                    silent_seconds = time.time() - last_activity_time
+
+                    log(
+                        (
+                            "Assistant sleeping "
+                            f"after {silent_seconds:.1f}s of silence"
+                        )
+                    )
 
                 continue
 
@@ -110,7 +116,7 @@ def main():
             # Speech-to-text
             # ---------------------------------------------
 
-            print("Transcribing...")
+            log("Transcribing")
 
             text = stt.transcribe(audio_path)
 
@@ -118,7 +124,7 @@ def main():
 
                 continue
 
-            print(f"You: {text}")
+            log(f"You: {text}")
 
             # ---------------------------------------------
             # Agent response
@@ -126,7 +132,7 @@ def main():
 
             response = agent.process(text)
 
-            print(f"Agent: {response}\n")
+            log(f"Agent: {response}")
 
             # ---------------------------------------------
             # Text-to-speech
@@ -135,7 +141,7 @@ def main():
             tts.speak(response)
 
             # Small cooldown after speaking before listening for follow-up speech.
-            print("Cooldown...")
+            log("Response cooldown")
 
             time.sleep(RESPONSE_COOLDOWN)
 
@@ -145,7 +151,7 @@ def main():
 
         except KeyboardInterrupt:
 
-            print("\nShutting down...")
+            log("Shutting down")
 
             tts.speak("Goodbye!")
 
@@ -155,7 +161,8 @@ def main():
 
             log(
                 f"Main loop error: {e}",
-                level="error"
+                level="error",
+                exc_info=True
             )
 
 

@@ -5,6 +5,8 @@ Uses pyttsx3 for local speech synthesis
 without requiring any external API.
 """
 
+import time
+
 import pyttsx3
 
 from utils.logger import log
@@ -39,6 +41,8 @@ class TTSEngine:
 
         try:
 
+            started_at = time.time()
+
             # Create a fresh engine instance
             # to avoid Windows audio lock issues
             engine = pyttsx3.init()
@@ -63,13 +67,17 @@ class TTSEngine:
                     voices[self.voice_index].id
                 )
 
-            print(f"🔊 Speaking: {text}")
+            log(f"TTS started: {text}")
 
             engine.say(text)
 
             engine.runAndWait()
 
             engine.stop()
+
+            log(
+                f"TTS finished in {time.time() - started_at:.1f}s"
+            )
 
         except Exception as e:
 
@@ -79,7 +87,7 @@ class TTSEngine:
             )
 
             # Fallback if audio output fails
-            print(f"[TTS] {text}")
+            log(f"TTS fallback text: {text}")
 
     # ---------------------------------------------------------
     def list_voices(self):
@@ -93,9 +101,6 @@ class TTSEngine:
 
         for index, voice in enumerate(voices):
 
-            print(
-                f"[{index}] "
-                f"{voice.name} — {voice.id}"
-            )
+            log(f"[{index}] {voice.name} - {voice.id}")
 
         engine.stop()

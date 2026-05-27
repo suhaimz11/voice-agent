@@ -6,6 +6,7 @@ transcribes recorded audio into text.
 """
 
 import os
+import time
 
 import whisper
 
@@ -47,6 +48,8 @@ class WhisperSTT:
 
         try:
 
+            started_at = time.time()
+
             result = self.model.transcribe(
                 audio_path,
 
@@ -60,6 +63,13 @@ class WhisperSTT:
             )
 
             text = result["text"].strip()
+
+            log(
+                (
+                    "Transcription complete "
+                    f"in {time.time() - started_at:.1f}s: '{text}'"
+                )
+            )
 
             # Cleanup temp audio file
             try:
