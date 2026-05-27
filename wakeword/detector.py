@@ -3,6 +3,7 @@ Wake word detection using openWakeWord.
 """
 
 import queue
+import time as time_module
 
 import numpy as np
 import sounddevice as sd
@@ -14,10 +15,16 @@ class WakeWordDetector:
 
     def __init__(
         self,
-        wake_word: str = "hey jarvis"
+        wake_word: str = "hey jarvis",
+        threshold: float = 0.5,
+        patience: int = 1,
+        ignore_initial_seconds: float = 0.2,
     ):
 
+        self.wake_word = self._normalize_wake_word(wake_word)
+
         self.model = Model(
+            wakeword_models=[self.wake_word],
             inference_framework="onnx"
         )
 
@@ -25,9 +32,18 @@ class WakeWordDetector:
 
         self.chunk_size = 1280
 
-        self.audio_queue = queue.Queue()
+        self.audio_queue = queue.Queue(maxsize=25)
 
-        self.wake_word = wake_word.lower()
+        self.threshold = threshold
+
+        self.patience = patience
+
+        self.ignore_initial_seconds = ignore_initial_seconds
+
+    # -----------------------------------------------------
+    @staticmethod
+    def _normalize_wake_word(wake_word: str) -> str:
+        return wake_word.strip().lower().replace(" ", "_")
 
     # -----------------------------------------------------
     def _audio_callback(
@@ -41,16 +57,41 @@ class WakeWordDetector:
         if status:
             print(status)
 
-        self.audio_queue.put(
-            indata.copy()
-        )
+        try:
+            self.audio_queue.put_nowait(
+                indata.copy()
+            )
+        except queue.Full:
+            # Keep the detector on live audio instead of old buffered frames.
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                pass
+
+            self.audio_queue.put_nowait(
+                indata.copy()
+            )
+
+    # -----------------------------------------------------
+    def reset(self):
+        self.model.reset()
+        self._clear_audio_queue()
+
+    # -----------------------------------------------------
+    def _clear_audio_queue(self):
+        with self.audio_queue.mutex:
+            self.audio_queue.queue.clear()
 
     # -----------------------------------------------------
     def listen(self):
 
-        print("👂 Waiting for wake word...")
+        print("Waiting for wake word...")
+
+        self.reset()
 
         detected = False
+
+        started_at = time_module.time()
 
         stream = sd.InputStream(
 
@@ -74,28 +115,37 @@ class WakeWordDetector:
 
                 audio = self.audio_queue.get()
 
+                if (
+                    time_module.time() - started_at
+                    < self.ignore_initial_seconds
+                ):
+                    continue
+
                 audio = np.frombuffer(
                     audio,
                     dtype=np.int16
                 )
 
-                prediction = self.model.predict(audio)
+                prediction = self.model.predict(
+                    audio,
+                    patience={self.wake_word: self.patience},
+                    threshold={self.wake_word: self.threshold},
+                )
 
-                for name, score in prediction.items():
+                score = prediction.get(
+                    self.wake_word,
+                    0.0
+                )
 
-                    if score > 0.5:
+                if score >= self.threshold:
 
-                        print(
-                            f"🟢 Wake word detected: {name}"
-                        )
+                    print(
+                        f"Wake word detected: {self.wake_word}"
+                    )
 
-                        # Clear old audio frames
-                        with self.audio_queue.mutex:
-                            self.audio_queue.queue.clear()
+                    self.reset()
 
-                        detected = True
-
-                        break
+                    detected = True
 
         finally:
 

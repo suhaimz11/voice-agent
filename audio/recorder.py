@@ -23,6 +23,7 @@ class AudioRecorder:
         channels: int = 1,
         silence_threshold: float = 500,
         silence_duration: float = 1.5,
+        no_speech_timeout: float = 1.0,
         max_record_seconds: float = 30.0,
     ):
 
@@ -38,6 +39,9 @@ class AudioRecorder:
 
         # Stop recording after this duration of silence
         self.silence_duration = silence_duration
+
+        # Return None if speech has not started within this duration
+        self.no_speech_timeout = no_speech_timeout
 
         # Safety cap to avoid endless recording
         self.max_record_seconds = max_record_seconds
@@ -81,9 +85,13 @@ class AudioRecorder:
             self.silence_duration * chunks_per_second
         )
 
+        no_speech_chunks_needed = int(
+            self.no_speech_timeout * chunks_per_second
+        )
+
         print("🎙️ Speak now...")
 
-        for _ in range(max_chunks):
+        for chunk_index in range(max_chunks):
 
             data = stream.read(
                 self.chunk_size,
@@ -111,6 +119,12 @@ class AudioRecorder:
                 silent_chunks = 0
 
             else:
+
+                if (
+                    not speaking
+                    and chunk_index >= no_speech_chunks_needed
+                ):
+                    break
 
                 # Start counting silence only
                 # after speech has begun

@@ -3,9 +3,9 @@ Main entry point for the voice agent.
 
 Flow:
 Wake Word
-→ Speech-to-Text
-→ LLM / Agent
-→ Text-to-Speech
+-> Speech-to-Text
+-> LLM / Agent
+-> Text-to-Speech
 """
 
 import time
@@ -18,13 +18,16 @@ from wakeword.detector import WakeWordDetector
 from utils.logger import log
 
 
-# Time before assistant goes back to sleep
-SESSION_TIMEOUT = 6
+# Time before assistant goes back to sleep after the last user speech.
+SESSION_TIMEOUT = 10
+
+# Give speakers and microphone buffers a moment to settle after TTS.
+RESPONSE_COOLDOWN = 1.0
 
 
 def main():
 
-    print("\n🎙️ Voice Agent Starting...")
+    print("\nVoice Agent Starting...")
     print("=" * 45)
 
     # Core components
@@ -40,7 +43,7 @@ def main():
 
     wakeword = WakeWordDetector()
 
-    print("✅ System ready.\n")
+    print("System ready.\n")
 
     tts.speak(
         "Voice agent ready."
@@ -65,7 +68,7 @@ def main():
 
             if not assistant_active:
 
-                print("👂 Waiting for wake word...")
+                print("Waiting for wake word...")
 
                 wakeword.listen()
 
@@ -73,13 +76,13 @@ def main():
 
                 last_activity_time = time.time()
 
-                print("🟢 Assistant active")
+                print("Assistant active")
 
             # ---------------------------------------------
             # Active session
             # ---------------------------------------------
 
-            print("🎤 Listening...")
+            print("Listening...")
 
             audio_path = recorder.record_until_silence()
 
@@ -94,7 +97,9 @@ def main():
 
                     assistant_active = False
 
-                    print("😴 Assistant sleeping")
+                    wakeword.reset()
+
+                    print("Assistant sleeping")
 
                 continue
 
@@ -105,7 +110,7 @@ def main():
             # Speech-to-text
             # ---------------------------------------------
 
-            print("📝 Transcribing...")
+            print("Transcribing...")
 
             text = stt.transcribe(audio_path)
 
@@ -113,7 +118,7 @@ def main():
 
                 continue
 
-            print(f"👤 You: {text}")
+            print(f"You: {text}")
 
             # ---------------------------------------------
             # Agent response
@@ -121,7 +126,7 @@ def main():
 
             response = agent.process(text)
 
-            print(f"🤖 Agent: {response}\n")
+            print(f"Agent: {response}\n")
 
             # ---------------------------------------------
             # Text-to-speech
@@ -129,14 +134,18 @@ def main():
 
             tts.speak(response)
 
-            # Small cooldown after speaking
-            print("⏳ Cooldown...")
+            # Small cooldown after speaking before listening for follow-up speech.
+            print("Cooldown...")
 
-            time.sleep(2)
+            time.sleep(RESPONSE_COOLDOWN)
+
+            # Start the silence timeout after the assistant is ready again,
+            # not while it is transcribing, thinking, or speaking.
+            last_activity_time = time.time()
 
         except KeyboardInterrupt:
 
-            print("\n👋 Shutting down...")
+            print("\nShutting down...")
 
             tts.speak("Goodbye!")
 
