@@ -8,14 +8,17 @@ The assistant listens through the microphone, converts speech into text using Wh
 
 # Features
 
+- Wake word activation
+- Active conversation sessions
 - Real-time microphone input
 - Speech-to-text using Whisper
 - Local LLM integration with Ollama
 - Context-aware conversations
-- Short-term memory support
+- Short-term conversation memory
 - Offline text-to-speech
 - Spoken math calculations
 - Silence detection
+- Fully local execution
 - Modular architecture
 
 ---
@@ -27,6 +30,7 @@ The assistant listens through the microphone, converts speech into text using Wh
 - Whisper
 - Ollama
 - Mistral
+- openWakeWord
 - pyttsx3
 - NumPy
 - FFmpeg
@@ -52,6 +56,9 @@ voice_agent/
 ├── tts/
 │   └── tts_engine.py
 │
+├── wakeword/
+│   └── detector.py
+│
 ├── utils/
 │   └── logger.py
 │
@@ -66,11 +73,10 @@ voice_agent/
 # How It Works
 
 ```text
-Mic
-→ PyAudio
-→ Whisper STT
-→ Ollama (Mistral)
-→ TTS
+Wake Word
+→ Speech-to-Text
+→ Local LLM
+→ Text-to-Speech
 → Speaker
 ```
 
@@ -143,16 +149,25 @@ python main.py
 # Example
 
 ```text
-You: What is 25 plus 17?
-Agent: The answer is 42.
+User: Hey Jarvis
+
+Assistant: Listening...
+
+User: What is Ethereum?
+
+Assistant: Ethereum is a decentralized blockchain platform...
 ```
 
 ```text
-You: My name is Suhaim.
-Agent: Nice to meet you, Suhaim.
+User: Who created it?
 
-You: What is my name?
-Agent: Your name is Suhaim.
+Assistant: Ethereum was created by Vitalik Buterin.
+```
+
+```text
+User: How old is he?
+
+Assistant: Vitalik Buterin is 31 years old.
 ```
 
 ---
@@ -161,8 +176,21 @@ Agent: Your name is Suhaim.
 
 - Whisper downloads model weights on first launch
 - Ollama must be installed locally
+- Runs completely offline
 - Recommended Python version: 3.11
-- Works fully offline
+- Wake word detection uses openWakeWord
+- Active session automatically closes after inactivity
+
+---
+
+# Future Plans
+
+- Structured tool calling
+- Crypto wallet integration
+- Hardware wallet support
+- Voice confirmations for transactions
+- Browser automation
+- Local memory persistence
 
 ---
 
