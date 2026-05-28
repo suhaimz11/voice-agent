@@ -13,6 +13,7 @@ The assistant waits for "Hey Jarvis", records the user's request, transcribes it
 - Barge-in interruption while the assistant is speaking
 - 10-second inactivity sleep timeout
 - Siri-style recording timing with longer start and pause tolerance
+- Silero VAD-based speech detection
 - Speech-to-text using Whisper
 - Local LLM integration through Ollama
 - Offline text-to-speech with pyttsx3
@@ -140,6 +141,7 @@ python main.py
 - Wake phrase: "Hey Jarvis"
 - Wake detector model: `hey_jarvis`
 - Wake threshold: `0.5`
+- Recorder VAD threshold: `0.35`
 - Start-speaking timeout: `4.0` seconds
 - End-of-speech silence: `2.5` seconds
 - Active-session sleep timeout: `10` seconds
@@ -185,14 +187,14 @@ Assistant: Ethereum was created by Vitalik Buterin.
 - Whisper downloads model weights on first launch.
 - Ollama must be running locally for LLM responses.
 - Wake word detection uses openWakeWord with ONNX Runtime.
+- Speech start/end detection uses Silero VAD through openWakeWord.
 - The assistant stays active after a response and sleeps only after inactivity.
-- If speech is cut off too early, lower `silence_threshold` in `audio/recorder.py`.
+- If speech is cut off too early, lower `vad_threshold` in `audio/recorder.py`.
 
 ---
 
 # Future Plans
 
-- Better VAD-based speech detection
 - Explicit voice commands such as "go to sleep" and "reset conversation"
 - Persistent local memory
 - Structured tool calling

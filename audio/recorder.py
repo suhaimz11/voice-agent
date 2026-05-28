@@ -11,6 +11,7 @@ import wave
 
 import numpy as np
 import pyaudio
+from openwakeword.vad import VAD
 
 from utils.logger import log
 
@@ -20,9 +21,9 @@ class AudioRecorder:
     def __init__(
         self,
         sample_rate: int = 16000,
-        chunk_size: int = 1024,
+        chunk_size: int = 960,
         channels: int = 1,
-        silence_threshold: float = 500,
+        vad_threshold: float = 0.35,
         silence_duration: float = 2.5,
         no_speech_timeout: float = 4.0,
         max_record_seconds: float = 45.0,
@@ -35,8 +36,8 @@ class AudioRecorder:
 
         self.channels = channels
 
-        # Minimum RMS level considered as speech
-        self.silence_threshold = silence_threshold
+        # Minimum Silero VAD score considered as speech
+        self.vad_threshold = vad_threshold
 
         # Stop recording after this duration of silence
         self.silence_duration = silence_duration
@@ -49,11 +50,14 @@ class AudioRecorder:
 
         self.format = pyaudio.paInt16
 
+        self.vad = VAD()
+
         log(
             (
                 "AudioRecorder initialized "
                 f"(start_timeout={self.no_speech_timeout}s, "
-                f"end_silence={self.silence_duration}s)"
+                f"end_silence={self.silence_duration}s, "
+                f"vad_threshold={self.vad_threshold})"
             )
         )
 
@@ -83,6 +87,10 @@ class AudioRecorder:
 
         silent_chunks = 0
 
+        max_vad_score = 0.0
+
+        max_rms = 0.0
+
         chunks_per_second = (
             self.sample_rate / self.chunk_size
         )
@@ -107,6 +115,8 @@ class AudioRecorder:
 
         started_at = time.time()
 
+        self.vad.reset_states()
+
         log(
             (
                 "Recording started "
@@ -129,13 +139,30 @@ class AudioRecorder:
                 dtype=np.int16
             ).astype(np.float32)
 
-            # Root mean square volume
+            # Root mean square volume is kept for debugging only.
             rms = float(
                 np.sqrt(np.mean(arr ** 2))
             )
 
+            vad_score = float(
+                self.vad.predict(
+                    arr.astype(np.int16),
+                    frame_size=480
+                )
+            )
+
+            max_rms = max(
+                max_rms,
+                rms
+            )
+
+            max_vad_score = max(
+                max_vad_score,
+                vad_score
+            )
+
             # Voice activity detected
-            if rms > self.silence_threshold:
+            if vad_score >= self.vad_threshold:
 
                 speaking = True
 
@@ -174,10 +201,21 @@ class AudioRecorder:
 
         # Ignore empty recordings
         if not speaking or len(frames) < 5:
+            log(
+                (
+                    "Recording discarded "
+                    f"(max_vad={max_vad_score:.2f}, "
+                    f"max_rms={max_rms:.0f})"
+                ),
+                level="debug"
+            )
             return None
 
         log(
-            f"Recording stopped after {time.time() - started_at:.1f}s"
+            (
+                f"Recording stopped after {time.time() - started_at:.1f}s "
+                f"(max_vad={max_vad_score:.2f}, max_rms={max_rms:.0f})"
+            )
         )
 
         return self._save_wav(frames)
