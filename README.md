@@ -10,6 +10,7 @@ The assistant waits for "Hey Jarvis", records the user's request, transcribes it
 
 - Wake word activation with openWakeWord
 - Active conversation sessions after wake
+- Barge-in interruption while the assistant is speaking
 - 10-second inactivity sleep timeout
 - Siri-style recording timing with longer start and pause tolerance
 - Speech-to-text using Whisper
@@ -143,6 +144,8 @@ python main.py
 - End-of-speech silence: `2.5` seconds
 - Active-session sleep timeout: `10` seconds
 - Max single recording: `45` seconds
+- Barge-in threshold: `1200` RMS
+- Barge-in grace period: `0.4` seconds
 
 These values are tuned in `wakeword/detector.py`, `audio/recorder.py`, and `main.py`.
 
@@ -189,7 +192,6 @@ Assistant: Ethereum was created by Vitalik Buterin.
 
 # Future Plans
 
-- Barge-in interruption while the assistant is speaking
 - Better VAD-based speech detection
 - Explicit voice commands such as "go to sleep" and "reset conversation"
 - Persistent local memory

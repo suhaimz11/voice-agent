@@ -148,7 +148,18 @@ def main():
             # Text-to-speech
             # ---------------------------------------------
 
-            tts.speak(response)
+            speech_completed = tts.speak(
+                response,
+                interruptible=True
+            )
+
+            if not speech_completed:
+
+                last_activity_time = time.time()
+
+                log("Assistant interrupted; listening for barge-in speech")
+
+                continue
 
             # Small cooldown after speaking before listening for follow-up speech.
             log("Response cooldown")
