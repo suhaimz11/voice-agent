@@ -50,6 +50,29 @@ class TTSEngine:
         log("TTSEngine initialized")
 
     # ---------------------------------------------------------
+    def adjust_rate(
+        self,
+        delta: int,
+        min_rate: int = 120,
+        max_rate: int = 230
+    ) -> int:
+        """
+        Adjust speech rate and return the new value.
+        """
+
+        self.rate = max(
+            min_rate,
+            min(
+                max_rate,
+                self.rate + delta
+            )
+        )
+
+        log(f"TTS rate set to {self.rate}")
+
+        return self.rate
+
+    # ---------------------------------------------------------
     def speak(
         self,
         text: str,

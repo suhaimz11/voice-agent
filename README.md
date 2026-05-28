@@ -18,6 +18,7 @@ The assistant waits for "Hey Jarvis", records the user's request, transcribes it
 - Local LLM integration through Ollama
 - Offline text-to-speech with pyttsx3
 - Spoken math calculations
+- Voice commands for sleep, repeat, reset, and speech speed
 - Short-term conversation memory
 - File and console logging
 - Fully local execution
@@ -153,6 +154,22 @@ These values are tuned in `wakeword/detector.py`, `audio/recorder.py`, and `main
 
 ---
 
+# Voice Commands
+
+```text
+go to sleep      -> return to wake-word mode
+stop             -> return to wake-word mode
+stop listening   -> return to wake-word mode
+reset conversation -> clear short-term chat and math memory
+repeat that      -> repeat the last assistant response
+speak slower     -> lower TTS speaking rate
+speak faster     -> raise TTS speaking rate
+shutdown         -> exit the app
+exit             -> exit the app
+```
+
+---
+
 # Logs
 
 Runtime logs are written to:
@@ -195,7 +212,6 @@ Assistant: Ethereum was created by Vitalik Buterin.
 
 # Future Plans
 
-- Explicit voice commands such as "go to sleep" and "reset conversation"
 - Persistent local memory
 - Structured tool calling
 - Browser automation

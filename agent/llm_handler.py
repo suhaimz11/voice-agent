@@ -31,6 +31,14 @@ Avoid long paragraphs.
 conversation_history = []
 
 
+def reset_conversation():
+    """
+    Clear short-term LLM conversation history.
+    """
+
+    conversation_history.clear()
+
+
 def ask_llm(prompt: str) -> str:
     """
     Send user prompt to local Ollama model

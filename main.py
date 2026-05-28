@@ -53,6 +53,8 @@ def main():
 
     last_activity_time = 0
 
+    last_response = ""
+
     # -----------------------------------------------------
     # Main loop
     # -----------------------------------------------------
@@ -142,7 +144,55 @@ def main():
 
             response = agent.process(text)
 
+            if response == "__SLEEP__":
+
+                tts.speak("Going to sleep.")
+
+                assistant_active = False
+
+                wakeword.reset()
+
+                log("Assistant sleeping by voice command")
+
+                continue
+
+            if response == "__EXIT__":
+
+                log("Shutdown requested by voice command")
+
+                tts.speak("Goodbye!")
+
+                break
+
+            if response == "__RESET_CONVERSATION__":
+
+                last_response = ""
+
+                response = "Conversation reset."
+
+            elif response == "__REPEAT__":
+
+                response = (
+                    last_response
+                    if last_response
+                    else "I do not have anything to repeat yet."
+                )
+
+            elif response == "__SPEAK_SLOWER__":
+
+                tts.adjust_rate(-20)
+
+                response = "I will speak slower."
+
+            elif response == "__SPEAK_FASTER__":
+
+                tts.adjust_rate(20)
+
+                response = "I will speak faster."
+
             log(f"Agent: {response}")
+
+            last_response = response
 
             # ---------------------------------------------
             # Text-to-speech

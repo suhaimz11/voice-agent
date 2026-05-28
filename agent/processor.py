@@ -12,7 +12,7 @@ import datetime
 import re
 
 from agent.math_handler import handle_math
-from agent.llm_handler import ask_llm
+from agent.llm_handler import ask_llm, reset_conversation
 from utils.logger import log
 
 
@@ -45,8 +45,33 @@ TIME_TRIGGERS = re.compile(
     re.I,
 )
 
-STOP_TRIGGERS = re.compile(
-    r"^(stop|quit|exit|goodbye|shut down|shutdown|turn off)\s*$",
+SLEEP_TRIGGERS = re.compile(
+    r"^(go to sleep|sleep|stop|stop listening|pause listening)\s*$",
+    re.I,
+)
+
+EXIT_TRIGGERS = re.compile(
+    r"^(quit|exit|goodbye|shut down|shutdown|turn off)\s*$",
+    re.I,
+)
+
+RESET_CONVERSATION_TRIGGERS = re.compile(
+    r"^(reset conversation|clear conversation|reset chat|clear chat)\s*$",
+    re.I,
+)
+
+REPEAT_TRIGGERS = re.compile(
+    r"^(repeat that|say that again|repeat|one more time)\s*$",
+    re.I,
+)
+
+SPEAK_SLOWER_TRIGGERS = re.compile(
+    r"^(speak slower|talk slower|slow down)\s*$",
+    re.I,
+)
+
+SPEAK_FASTER_TRIGGERS = re.compile(
+    r"^(speak faster|talk faster|speed up)\s*$",
     re.I,
 )
 
@@ -84,9 +109,25 @@ class AgentProcessor:
             level="debug"
         )
 
-        # Exit command
-        if intent == "STOP":
+        # Conversation control commands
+        if intent == "SLEEP":
+            return "__SLEEP__"
+
+        if intent == "EXIT":
             return "__EXIT__"
+
+        if intent == "RESET_CONVERSATION":
+            self.reset_conversation()
+            return "__RESET_CONVERSATION__"
+
+        if intent == "REPEAT":
+            return "__REPEAT__"
+
+        if intent == "SPEAK_SLOWER":
+            return "__SPEAK_SLOWER__"
+
+        if intent == "SPEAK_FASTER":
+            return "__SPEAK_FASTER__"
 
         # Greetings
         if intent == "GREETING":
@@ -112,17 +153,32 @@ class AgentProcessor:
         Basic rule-based intent classification.
         """
 
-        if STOP_TRIGGERS.search(text):
-            return "STOP"
+        if SLEEP_TRIGGERS.search(text):
+            return "SLEEP"
+
+        if EXIT_TRIGGERS.search(text):
+            return "EXIT"
+
+        if RESET_CONVERSATION_TRIGGERS.search(text):
+            return "RESET_CONVERSATION"
+
+        if REPEAT_TRIGGERS.search(text):
+            return "REPEAT"
+
+        if SPEAK_SLOWER_TRIGGERS.search(text):
+            return "SPEAK_SLOWER"
+
+        if SPEAK_FASTER_TRIGGERS.search(text):
+            return "SPEAK_FASTER"
+
+        if HELP_TRIGGERS.search(text):
+            return "HELP"
 
         if GREETING_TRIGGERS.search(text):
             return "GREETING"
 
         if TIME_TRIGGERS.search(text):
             return "TIME"
-
-        if HELP_TRIGGERS.search(text):
-            return "HELP"
 
         if MATH_TRIGGERS.search(text):
             return "MATH"
@@ -166,8 +222,22 @@ class AgentProcessor:
         return (
             "I can solve math problems, "
             "tell you the time and date, "
-            "and handle basic voice commands."
+            "and handle commands like go to sleep, "
+            "reset conversation, repeat that, "
+            "speak slower, and speak faster."
         )
+
+    # ---------------------------------------------------------
+    def reset_conversation(self):
+
+        reset_conversation()
+
+        self.memory = {
+            "last_result": None,
+            "last_input": None,
+        }
+
+        log("Conversation memory reset")
 
     # ---------------------------------------------------------
     def _handle_math(self, text: str) -> str:
