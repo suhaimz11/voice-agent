@@ -2,7 +2,7 @@
 
 A local Python voice assistant with wake-word activation, speech-to-text, local agent processing, and offline text-to-speech.
 
-The assistant waits for "Hey Jarvis", records the user's request, transcribes it with Whisper, processes it through the local agent/Ollama stack, speaks the response, and stays active for follow-up questions until there is 10 seconds of silence.
+The assistant waits for "Hey Jarvis", records the user's request, transcribes it with Whisper, processes it through the local agent/LLM stack, speaks the response, and stays active for follow-up questions until there is 10 seconds of silence.
 
 ---
 
@@ -15,8 +15,8 @@ The assistant waits for "Hey Jarvis", records the user's request, transcribes it
 - Siri-style recording timing with longer start and pause tolerance
 - Silero VAD-based speech detection
 - Speech-to-text using Whisper
-- Local LLM integration through Ollama
-- Offline text-to-speech with pyttsx3
+- Local LLM integration (Ollama or llama-cpp-python)
+- Offline text-to-speech with pyttsx3 or Piper
 - Spoken math calculations
 - Voice commands for sleep, repeat, reset, and speech speed
 - Short-term conversation memory
@@ -33,11 +33,9 @@ The assistant waits for "Hey Jarvis", records the user's request, transcribes it
 - sounddevice
 - openWakeWord
 - ONNX Runtime
-- Whisper
-- PyTorch
-- Ollama
-- Mistral
-- pyttsx3
+- faster-whisper (recommended) or Whisper
+- llama-cpp-python (recommended) or Ollama
+- pyttsx3 or Piper TTS
 - NumPy / SciPy
 - FFmpeg
 
@@ -77,7 +75,7 @@ Sleep mode
 -> Active session
 -> Record speech until silence
 -> Transcribe with Whisper
--> Process with local agent / Ollama
+-> Process with local agent / LLM
 -> Speak response
 -> Listen for follow-up speech
 -> Sleep after 10 seconds of silence
@@ -121,12 +119,19 @@ Whisper requires FFmpeg. Verify it is available:
 ffmpeg -version
 ```
 
-## 5. Install Ollama
+## 5. Install and Start LLM Backend
 
-Install Ollama, then pull the local model:
+**Option A — Ollama (easier, more RAM):**
 
 ```bash
 ollama run mistral
+```
+
+**Option B — llama-cpp-python (recommended for low-RAM devices):**
+
+```bash
+pip install llama-cpp-python
+# Download a GGUF model from HuggingFace, e.g. Qwen2.5-1.5B-Instruct Q4_K_M
 ```
 
 ## 6. Run Voice Agent
@@ -139,7 +144,7 @@ python main.py
 
 # Current Voice Behavior
 
-- Wake phrase: "Hey Jarvis"
+- Wake phrase: `Hey Jarvis`
 - Wake detector model: `hey_jarvis`
 - Wake threshold: `0.5`
 - Recorder VAD threshold: `0.35`
@@ -157,16 +162,82 @@ These values are tuned in `wakeword/detector.py`, `audio/recorder.py`, and `main
 # Voice Commands
 
 ```text
-go to sleep      -> return to wake-word mode
-stop             -> return to wake-word mode
-stop listening   -> return to wake-word mode
+go to sleep        -> return to wake-word mode
+stop               -> return to wake-word mode
+stop listening     -> return to wake-word mode
 reset conversation -> clear short-term chat and math memory
-repeat that      -> repeat the last assistant response
-speak slower     -> lower TTS speaking rate
-speak faster     -> raise TTS speaking rate
-shutdown         -> exit the app
-exit             -> exit the app
+repeat that        -> repeat the last assistant response
+speak slower       -> lower TTS speaking rate
+speak faster       -> raise TTS speaking rate
+shutdown           -> exit the app
+exit               -> exit the app
 ```
+
+---
+
+# Raspberry Pi / Low-RAM Deployment
+
+The default stack (PyTorch + Whisper + Ollama) is too heavy for devices with 4–8 GB RAM. Use the lightweight alternatives below.
+
+## Lightweight Stack
+
+| Component | Default | Lightweight Alternative |
+|-----------|---------|------------------------|
+| STT | openai-whisper + PyTorch | **faster-whisper** (no PyTorch needed) |
+| VAD | Silero via PyTorch | **Silero ONNX** (onnxruntime only) |
+| LLM | Ollama + Mistral 7B | **llama-cpp-python** + small GGUF model |
+| TTS | pyttsx3 | **piper-tts** (better voice, still offline) |
+| Audio | PyAudio + sounddevice | sounddevice only (drop PyAudio) |
+
+Estimated RAM with the lightweight stack: **~2–2.5 GB**, leaving comfortable headroom on a 4 GB Pi.
+
+## Recommended LLM Models by RAM
+
+### 4 GB RAM (Raspberry Pi 4 / 5 — 4 GB)
+
+| Model | RAM Usage | Notes |
+|-------|-----------|-------|
+| Qwen2.5-1.5B-Instruct Q4_K_M | ~1.0 GB | Best balance for 4 GB |
+| Gemma-2B Q4_K_M | ~1.5 GB | Good general reasoning |
+| TinyLlama-1.1B Q4_K_M | ~0.7 GB | Fastest, most basic |
+
+### 8 GB RAM (Raspberry Pi 5 — 8 GB)
+
+| Model | RAM Usage | Notes |
+|-------|-----------|-------|
+| Phi-3-mini-4k-instruct Q4_K_M | ~2.5 GB | Recommended — strong reasoning |
+| Llama-3.2-3B-Instruct Q4_K_M | ~2.0 GB | Great instruction following |
+| Gemma-2-2B Q4_K_M | ~1.5 GB | Fast + solid quality |
+
+Download GGUF models from [HuggingFace](https://huggingface.co/models?search=gguf).
+
+## Lightweight STT Setup
+
+```bash
+pip install faster-whisper
+
+# In whisper_stt.py — use tiny.en for English-only (fastest, ~150 MB)
+from faster_whisper import WhisperModel
+model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+```
+
+## Lightweight LLM Setup
+
+```bash
+pip install llama-cpp-python
+
+# In llm_handler.py
+from llama_cpp import Llama
+llm = Llama(model_path="models/qwen2.5-1.5b-instruct-q4_k_m.gguf", n_threads=4, n_ctx=2048)
+```
+
+## Raspberry Pi Performance Tips
+
+- Use `compute_type="int8"` in faster-whisper for ARM NEON speedup
+- Set `n_threads=4` in llama-cpp-python to use all Pi cores
+- Store model files on a USB 3 SSD rather than the SD card — load times are dramatically faster
+- Use a USB microphone instead of the 3.5mm jack for cleaner VAD signal
+- If speech is cut off too early, lower `vad_threshold` in `audio/recorder.py`
 
 ---
 
@@ -201,8 +272,8 @@ Assistant: Ethereum was created by Vitalik Buterin.
 
 # Notes
 
-- Whisper downloads model weights on first launch.
-- Ollama must be running locally for LLM responses.
+- faster-whisper downloads model weights on first launch.
+- When using llama-cpp-python, download the GGUF model manually and set the path in config.
 - Wake word detection uses openWakeWord with ONNX Runtime.
 - Speech start/end detection uses Silero VAD through openWakeWord.
 - The assistant stays active after a response and sleeps only after inactivity.
@@ -216,6 +287,8 @@ Assistant: Ethereum was created by Vitalik Buterin.
 - Structured tool calling
 - Browser automation
 - Crypto wallet and hardware wallet integrations
+- Raspberry Pi image / one-command setup script
+- Config file for hardware profile selection (desktop / Pi 4 / Pi 5)
 
 ---
 
