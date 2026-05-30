@@ -3,6 +3,10 @@ Handles microphone recording for the voice agent.
 
 Records audio until silence is detected,
 then saves the result as a temporary WAV file.
+
+Uses sounddevice for audio I/O (replaces PyAudio).
+VAD runs via openWakeWord which uses ONNX Runtime
+internally — no PyTorch required.
 """
 
 import time
@@ -10,10 +14,14 @@ import tempfile
 import wave
 
 import numpy as np
-import pyaudio
+import sounddevice as sd
 from openwakeword.vad import VAD
 
 from utils.logger import log
+
+
+# int16 = 2 bytes per sample — fixed, no PyAudio needed to look this up
+SAMPLE_WIDTH = 2
 
 
 class AudioRecorder:
@@ -48,8 +56,7 @@ class AudioRecorder:
         # Safety cap to avoid endless recording
         self.max_record_seconds = max_record_seconds
 
-        self.format = pyaudio.paInt16
-
+        # openWakeWord VAD uses Silero via ONNX Runtime internally
         self.vad = VAD()
 
         log(
@@ -64,22 +71,12 @@ class AudioRecorder:
     # ---------------------------------------------------------
     def record_until_silence(
         self,
-        no_speech_timeout=None
+        no_speech_timeout=None,
     ) -> str | None:
         """
         Start recording from the default microphone
         and stop once silence is detected.
         """
-
-        pa = pyaudio.PyAudio()
-
-        stream = pa.open(
-            format=self.format,
-            channels=self.channels,
-            rate=self.sample_rate,
-            input=True,
-            frames_per_buffer=self.chunk_size,
-        )
 
         frames = []
 
@@ -124,91 +121,83 @@ class AudioRecorder:
             )
         )
 
-        for chunk_index in range(max_chunks):
+        with sd.RawInputStream(
+            samplerate=self.sample_rate,
+            blocksize=self.chunk_size,
+            channels=self.channels,
+            dtype="int16",
+        ) as stream:
 
-            data = stream.read(
-                self.chunk_size,
-                exception_on_overflow=False,
-            )
+            for chunk_index in range(max_chunks):
 
-            frames.append(data)
+                data, _ = stream.read(self.chunk_size)
 
-            # Convert raw audio bytes into numpy array
-            arr = np.frombuffer(
-                data,
-                dtype=np.int16
-            ).astype(np.float32)
+                frames.append(bytes(data))
 
-            # Root mean square volume is kept for debugging only.
-            rms = float(
-                np.sqrt(np.mean(arr ** 2))
-            )
+                # Convert raw bytes into numpy array for VAD
+                arr = np.frombuffer(
+                    data,
+                    dtype=np.int16,
+                ).astype(np.float32)
 
-            vad_score = float(
-                self.vad.predict(
-                    arr.astype(np.int16),
-                    frame_size=480
+                # RMS kept for debug logging only
+                rms = float(
+                    np.sqrt(np.mean(arr ** 2))
                 )
-            )
 
-            max_rms = max(
-                max_rms,
-                rms
-            )
-
-            max_vad_score = max(
-                max_vad_score,
-                vad_score
-            )
-
-            # Voice activity detected
-            if vad_score >= self.vad_threshold:
-
-                speaking = True
-
-                silent_chunks = 0
-
-            else:
-
-                if (
-                    not speaking
-                    and chunk_index >= no_speech_chunks_needed
-                ):
-                    log(
-                        (
-                            "No speech detected "
-                            f"after {time.time() - started_at:.1f}s"
-                        ),
-                        level="debug"
+                vad_score = float(
+                    self.vad.predict(
+                        arr.astype(np.int16),
+                        frame_size=480,
                     )
-                    break
+                )
 
-                # Start counting silence only
-                # after speech has begun
-                if speaking:
+                max_rms = max(max_rms, rms)
 
-                    silent_chunks += 1
+                max_vad_score = max(max_vad_score, vad_score)
 
-                    if silent_chunks >= silence_chunks_needed:
+                # Voice activity detected
+                if vad_score >= self.vad_threshold:
+
+                    speaking = True
+
+                    silent_chunks = 0
+
+                else:
+
+                    if (
+                        not speaking
+                        and chunk_index >= no_speech_chunks_needed
+                    ):
+                        log(
+                            (
+                                "No speech detected "
+                                f"after {time.time() - started_at:.1f}s"
+                            ),
+                            level="debug",
+                        )
                         break
 
-        # Release microphone
-        stream.stop_stream()
+                    # Count silence only after speech has begun
+                    if speaking:
 
-        stream.close()
+                        silent_chunks += 1
 
-        pa.terminate()
+                        if silent_chunks >= silence_chunks_needed:
+                            break
 
-        # Ignore empty recordings
+        # Ignore empty or noise-only recordings
         if not speaking or len(frames) < 5:
+
             log(
                 (
                     "Recording discarded "
                     f"(max_vad={max_vad_score:.2f}, "
                     f"max_rms={max_rms:.0f})"
                 ),
-                level="debug"
+                level="debug",
             )
+
             return None
 
         log(
@@ -228,27 +217,22 @@ class AudioRecorder:
 
         tmp = tempfile.NamedTemporaryFile(
             suffix=".wav",
-            delete=False
+            delete=False,
         )
 
         path = tmp.name
 
         tmp.close()
 
-        pa = pyaudio.PyAudio()
-
         with wave.open(path, "wb") as wf:
 
             wf.setnchannels(self.channels)
 
-            wf.setsampwidth(
-                pa.get_sample_size(self.format)
-            )
+            # int16 is always 2 bytes — no PyAudio needed
+            wf.setsampwidth(SAMPLE_WIDTH)
 
             wf.setframerate(self.sample_rate)
 
             wf.writeframes(b"".join(frames))
-
-        pa.terminate()
 
         return path
