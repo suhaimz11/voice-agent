@@ -1,28 +1,54 @@
 # Voice Agent Dependencies
 # Recommended Python version: 3.11
 
+# -----------------------------------------------------------
+# Audio I/O
+# -----------------------------------------------------------
+
 # Microphone input and audio streaming
-PyAudio==0.2.14
 sounddevice>=0.4.6
 
+# -----------------------------------------------------------
 # Wake word detection
+# -----------------------------------------------------------
+
 openwakeword==0.5.1
 onnxruntime>=1.18.0
 
+# -----------------------------------------------------------
 # Speech-to-text
-openai-whisper>=20231117
+# -----------------------------------------------------------
 
-# PyTorch stack for Whisper
-torch>=2.0.0
-torchvision>=0.15.0
-torchaudio>=2.0.0
+# Replaces openai-whisper + PyTorch — no GPU/CUDA required
+# Uses CTranslate2 backend, runs well on CPU and ARM (Raspberry Pi)
+faster-whisper>=1.0.0
 
-# Local text-to-speech
+# -----------------------------------------------------------
+# Text-to-speech
+# -----------------------------------------------------------
+
+# Primary: Piper TTS — neural offline voice (recommended)
+# Download Jenny model from: https://github.com/rhasspy/piper/releases
+# File: en_US-jenny_dioco-medium.onnx + .onnx.json -> place in models/
+piper-tts>=1.2.0
+
+# Fallback: pyttsx3 — used automatically if Piper model is not found
 pyttsx3>=2.90
 
+# -----------------------------------------------------------
+# LLM backend
+# -----------------------------------------------------------
+
+# Option A: Ollama (easier setup, more RAM usage)
+ollama>=0.3.0
+
+# Option B: llama-cpp-python (recommended for Raspberry Pi / low RAM)
+# Uncomment below and comment out ollama above
+# llama-cpp-python>=0.2.0
+
+# -----------------------------------------------------------
 # Numerical processing
+# -----------------------------------------------------------
+
 numpy>=1.24
 scipy>=1.10
-
-# Local LLM runtime
-ollama>=0.3.0
