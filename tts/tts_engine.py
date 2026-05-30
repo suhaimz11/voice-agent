@@ -16,9 +16,9 @@ Piper model setup:
     3. Set PIPER_MODEL_PATH env var if using a different path/voice.
 """
 
+import io
 import math
 import os
-import tempfile
 import threading
 import time
 import wave
@@ -210,53 +210,30 @@ class TTSEngine:
         engine.stop()
 
     # ---------------------------------------------------------
-    # Piper synthesis helpers
+    # Piper synthesis helper
     # ---------------------------------------------------------
 
-    def _synthesize_to_wav(self, text: str) -> str:
+    def _synthesize(self, text: str):
         """
-        Synthesize text with Piper and write to a temp WAV file.
-        Returns the file path.
-        """
-
-        tmp = tempfile.NamedTemporaryFile(
-            suffix=".wav",
-            delete=False,
-        )
-
-        path = tmp.name
-
-        tmp.close()
-
-        with wave.open(path, "wb") as wf:
-
-            self._piper_voice.synthesize(
-                text,
-                wf,
-                length_scale=self._length_scale,
-            )
-
-        return path
-
-    def _load_wav_as_float(self, path: str):
-        """
-        Load a WAV file as a float32 numpy array.
-        Returns (audio_array, sample_rate).
+        Synthesize text with Piper entirely in memory.
+        Returns (audio_array, sample_rate) — no temp files.
         """
 
-        with wave.open(path, "rb") as wf:
+        buf = io.BytesIO()
 
+        with wave.open(buf, "wb") as wf:
+            self._piper_voice.synthesize_wav(text, wf)
+
+        buf.seek(0)
+
+        with wave.open(buf, "rb") as wf:
             sample_rate = wf.getframerate()
-            n_channels = wf.getnchannels()
             raw = wf.readframes(wf.getnframes())
 
         audio = (
             np.frombuffer(raw, dtype=np.int16)
             .astype(np.float32) / 32768.0
         )
-
-        if n_channels > 1:
-            audio = audio.reshape(-1, n_channels)
 
         return audio, sample_rate
 
@@ -272,19 +249,10 @@ class TTSEngine:
 
         if self._use_piper:
 
-            path = self._synthesize_to_wav(text)
+            audio, sample_rate = self._synthesize(text)
 
-            audio, sample_rate = self._load_wav_as_float(path)
-
-            try:
-                sd.play(audio, sample_rate)
-                sd.wait()
-
-            finally:
-                try:
-                    os.remove(path)
-                except Exception:
-                    pass
+            sd.play(audio, sample_rate)
+            sd.wait()
 
         else:
 
@@ -333,8 +301,7 @@ class TTSEngine:
         interrupted = False
         max_rms = 0.0
 
-        path = self._synthesize_to_wav(text)
-        audio, sample_rate = self._load_wav_as_float(path)
+        audio, sample_rate = self._synthesize(text)
 
         try:
 
@@ -399,11 +366,6 @@ class TTSEngine:
         finally:
 
             sd.stop()
-
-            try:
-                os.remove(path)
-            except Exception:
-                pass
 
         if interrupted:
             return False
