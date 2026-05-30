@@ -1,46 +1,63 @@
 """
 Whisper speech-to-text wrapper.
 
-Loads a local Whisper model and
+Loads a local faster-whisper model and
 transcribes recorded audio into text.
+
+Uses CTranslate2 backend — no PyTorch required.
 """
 
 import os
 import time
 
-import whisper
+from faster_whisper import WhisperModel
 
 from utils.logger import log
 
 
 class WhisperSTT:
 
-    def __init__(self, model_size: str = "base"):
+    def __init__(
+        self,
+        model_size: str = "tiny.en",
+        device: str = "cpu",
+        compute_type: str = "int8",
+    ):
         """
-        Load Whisper model during startup.
+        Load faster-whisper model during startup.
 
         Available models:
-        tiny   -> fastest
-        base   -> balanced
-        small  -> better accuracy
-        medium -> slower but more accurate
+            tiny.en    -> fastest, English-only (~150 MB)
+            base.en    -> balanced, English-only (~290 MB)
+            small.en   -> better accuracy (~490 MB)
+            medium.en  -> slower, more accurate (~1.5 GB)
+
+        compute_type options:
+            int8       -> recommended for CPU and ARM (Raspberry Pi)
+            float16    -> recommended if CUDA GPU is available
+            float32    -> fallback for older hardware
         """
 
         log(
-            f"Loading Whisper model '{model_size}'..."
+            f"Loading faster-whisper model '{model_size}' "
+            f"[device={device}, compute_type={compute_type}]..."
         )
 
-        self.model = whisper.load_model(model_size)
+        self.model = WhisperModel(
+            model_size,
+            device=device,
+            compute_type=compute_type,
+        )
 
         log(
-            f"Whisper '{model_size}' loaded ✓"
+            f"faster-whisper '{model_size}' loaded ✓"
         )
 
     # ---------------------------------------------------------
     def transcribe(
         self,
         audio_path: str,
-        language: str = "en"
+        language: str = "en",
     ) -> str:
         """
         Convert audio file into text.
@@ -50,19 +67,20 @@ class WhisperSTT:
 
             started_at = time.time()
 
-            result = self.model.transcribe(
+            segments, info = self.model.transcribe(
                 audio_path,
 
-                # Set to None for auto-detection
+                # Set to None for auto language detection
                 language=language,
 
-                # Enable if CUDA GPU is available
-                fp16=False,
-
-                verbose=False,
+                # Suppress blank/silence outputs
+                vad_filter=True,
             )
 
-            text = result["text"].strip()
+            # Segments are a lazy generator — consume fully
+            text = " ".join(
+                segment.text for segment in segments
+            ).strip()
 
             log(
                 (
@@ -84,7 +102,7 @@ class WhisperSTT:
 
             log(
                 f"Whisper transcription error: {e}",
-                level="error"
+                level="error",
             )
 
             return ""
