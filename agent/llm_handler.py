@@ -1,5 +1,10 @@
 """
-Local LLM handler using Ollama.
+Local LLM handler.
+
+Supports two backends, selected via LLM_BACKEND env var:
+
+    LLM_BACKEND=ollama      (default) uses Ollama + Mistral
+    LLM_BACKEND=llamacpp    uses llama-cpp-python with a local GGUF model
 
 Handles:
 - conversational responses
@@ -7,8 +12,14 @@ Handles:
 - multi-turn interactions
 """
 
-from ollama import chat
+import os
 
+from utils.logger import log
+
+
+# -----------------------------------------------------------
+# Config
+# -----------------------------------------------------------
 
 SYSTEM_PROMPT = """
 You are a local AI voice assistant.
@@ -26,10 +37,116 @@ Keep responses:
 Avoid long paragraphs.
 """
 
+MAX_HISTORY = 12
+
+# Select backend via environment variable
+# export LLM_BACKEND=llamacpp   (Raspberry Pi / low RAM)
+# export LLM_BACKEND=ollama     (default)
+LLM_BACKEND = os.environ.get("LLM_BACKEND", "ollama").lower()
+
+
+# -----------------------------------------------------------
+# Backend: Ollama
+# -----------------------------------------------------------
+
+class OllamaBackend:
+
+    def __init__(self):
+
+        from ollama import chat as ollama_chat
+
+        self._chat = ollama_chat
+        self.model = os.environ.get("OLLAMA_MODEL", "mistral")
+
+        log(f"LLM backend: Ollama (model={self.model})")
+
+    def generate(self, messages: list) -> str:
+
+        response = self._chat(
+            model=self.model,
+            messages=messages,
+        )
+
+        return response["message"]["content"]
+
+
+# -----------------------------------------------------------
+# Backend: llama-cpp-python
+# -----------------------------------------------------------
+
+class LlamaCppBackend:
+
+    def __init__(self):
+
+        from llama_cpp import Llama
+
+        model_path = os.environ.get(
+            "LLAMACPP_MODEL_PATH",
+            "models/model.gguf",
+        )
+
+        n_threads = int(
+            os.environ.get("LLAMACPP_THREADS", "4")
+        )
+
+        n_ctx = int(
+            os.environ.get("LLAMACPP_CTX", "2048")
+        )
+
+        log(
+            f"LLM backend: llama-cpp-python "
+            f"(model={model_path}, threads={n_threads}, ctx={n_ctx})"
+        )
+
+        self.llm = Llama(
+            model_path=model_path,
+            n_threads=n_threads,
+            n_ctx=n_ctx,
+
+            # Suppress llama.cpp console output
+            verbose=False,
+        )
+
+    def generate(self, messages: list) -> str:
+
+        response = self.llm.create_chat_completion(
+            messages=messages,
+            max_tokens=256,
+            temperature=0.7,
+        )
+
+        return response["choices"][0]["message"]["content"]
+
+
+# -----------------------------------------------------------
+# Load selected backend once at import time
+# -----------------------------------------------------------
+
+def _load_backend():
+
+    if LLM_BACKEND == "llamacpp":
+        return LlamaCppBackend()
+
+    if LLM_BACKEND == "ollama":
+        return OllamaBackend()
+
+    log(
+        f"Unknown LLM_BACKEND '{LLM_BACKEND}', falling back to Ollama.",
+        level="warning",
+    )
+
+    return OllamaBackend()
+
+
+_backend = _load_backend()
 
 # Stores ongoing conversation history
 conversation_history = []
 
+
+# -----------------------------------------------------------
+# Public API
+# -----------------------------------------------------------
 
 def reset_conversation():
     """
@@ -38,10 +155,12 @@ def reset_conversation():
 
     conversation_history.clear()
 
+    log("Conversation history cleared.")
+
 
 def ask_llm(prompt: str) -> str:
     """
-    Send user prompt to local Ollama model
+    Send user prompt to the active LLM backend
     and return the assistant response.
     """
 
@@ -49,70 +168,52 @@ def ask_llm(prompt: str) -> str:
 
         # Build message list
         messages = [
-
             {
                 "role": "system",
                 "content": SYSTEM_PROMPT,
             }
-
         ]
 
-        # Add previous conversation
-        messages.extend(
-            conversation_history
-        )
+        # Add previous conversation turns
+        messages.extend(conversation_history)
 
         # Add latest user message
         messages.append(
-
             {
                 "role": "user",
                 "content": prompt,
             }
-
         )
 
-        # Generate response
-        response = chat(
+        # Generate response from active backend
+        reply = _backend.generate(messages).strip()
 
-            model="mistral",
-
-            messages=messages
-
-        )
-
-        reply = response["message"]["content"]
-
-        # Save conversation memory
+        # Save this turn to memory
         conversation_history.append(
-
             {
                 "role": "user",
                 "content": prompt,
             }
-
         )
 
         conversation_history.append(
-
             {
                 "role": "assistant",
                 "content": reply,
             }
-
         )
 
         # Prevent memory from growing forever
-        MAX_HISTORY = 12
-
         if len(conversation_history) > MAX_HISTORY:
 
             del conversation_history[
-                :len(conversation_history) - MAX_HISTORY
+                : len(conversation_history) - MAX_HISTORY
             ]
 
-        return reply.strip()
+        return reply
 
     except Exception as e:
+
+        log(f"LLM error: {e}", level="error")
 
         return f"LLM error: {e}"
