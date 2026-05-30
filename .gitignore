@@ -8,3 +8,4 @@ logs/
 .env
 Thumbs.db
 .DS_Store
+models/
