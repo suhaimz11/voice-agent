@@ -39,12 +39,6 @@ Avoid long paragraphs.
 
 MAX_HISTORY = 12
 
-# Select backend via environment variable
-# export LLM_BACKEND=llamacpp   (Raspberry Pi / low RAM)
-# export LLM_BACKEND=ollama     (default)
-LLM_BACKEND = os.environ.get("LLM_BACKEND", "ollama").lower()
-
-
 # -----------------------------------------------------------
 # Backend: Ollama
 # -----------------------------------------------------------
@@ -119,26 +113,40 @@ class LlamaCppBackend:
 
 
 # -----------------------------------------------------------
-# Load selected backend once at import time
+# Load selected backend lazily
 # -----------------------------------------------------------
 
 def _load_backend():
 
-    if LLM_BACKEND == "llamacpp":
+    # Select backend via environment variable
+    # export LLM_BACKEND=llamacpp   (Raspberry Pi / low RAM)
+    # export LLM_BACKEND=ollama     (default)
+    llm_backend = os.environ.get("LLM_BACKEND", "ollama").lower()
+
+    if llm_backend == "llamacpp":
         return LlamaCppBackend()
 
-    if LLM_BACKEND == "ollama":
+    if llm_backend == "ollama":
         return OllamaBackend()
 
     log(
-        f"Unknown LLM_BACKEND '{LLM_BACKEND}', falling back to Ollama.",
+        f"Unknown LLM_BACKEND '{llm_backend}', falling back to Ollama.",
         level="warning",
     )
 
     return OllamaBackend()
 
 
-_backend = _load_backend()
+_backend = None
+
+
+def _get_backend():
+    global _backend
+
+    if _backend is None:
+        _backend = _load_backend()
+
+    return _backend
 
 # Stores ongoing conversation history
 conversation_history = []
@@ -186,7 +194,7 @@ def ask_llm(prompt: str) -> str:
         )
 
         # Generate response from active backend
-        reply = _backend.generate(messages).strip()
+        reply = _get_backend().generate(messages).strip()
 
         # Save this turn to memory
         conversation_history.append(

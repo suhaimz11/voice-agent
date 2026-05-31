@@ -8,6 +8,7 @@ Wake Word
 -> Text-to-Speech
 """
 
+import os
 import time
 
 from audio.recorder import AudioRecorder
@@ -24,6 +25,12 @@ SESSION_TIMEOUT = 10
 # Give speakers and microphone buffers a moment to settle after TTS.
 RESPONSE_COOLDOWN = 1.0
 
+# Desktop defaults stay unchanged. These env vars are optional knobs for
+# later low-RAM profiles without changing normal local development.
+STT_MODEL_SIZE = os.environ.get("VOICE_AGENT_STT_MODEL", "small")
+STT_DEVICE = os.environ.get("VOICE_AGENT_STT_DEVICE", "cpu")
+STT_COMPUTE_TYPE = os.environ.get("VOICE_AGENT_STT_COMPUTE_TYPE", "int8")
+
 
 def main():
 
@@ -33,7 +40,9 @@ def main():
     recorder = AudioRecorder()
 
     stt = WhisperSTT(
-        model_size="small"
+        model_size=STT_MODEL_SIZE,
+        device=STT_DEVICE,
+        compute_type=STT_COMPUTE_TYPE,
     )
 
     tts = TTSEngine()
