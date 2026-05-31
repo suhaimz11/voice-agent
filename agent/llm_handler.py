@@ -13,6 +13,7 @@ Handles:
 """
 
 import os
+import time
 
 from utils.logger import log
 
@@ -33,6 +34,8 @@ Keep responses:
 - short
 - conversational
 - natural for speech
+- one or two sentences unless the user asks for detail
+- under 40 words whenever possible
 
 Avoid long paragraphs.
 """
@@ -51,14 +54,28 @@ class OllamaBackend:
 
         self._chat = ollama_chat
         self.model = os.environ.get("OLLAMA_MODEL", "mistral")
+        self.num_predict = int(os.environ.get("OLLAMA_NUM_PREDICT", "80"))
+        self.temperature = float(os.environ.get("OLLAMA_TEMPERATURE", "0.6"))
+        self.keep_alive = os.environ.get("OLLAMA_KEEP_ALIVE", "10m")
 
-        log(f"LLM backend: Ollama (model={self.model})")
+        log(
+            (
+                f"LLM backend: Ollama (model={self.model}, "
+                f"num_predict={self.num_predict}, keep_alive={self.keep_alive})"
+            )
+        )
 
     def generate(self, messages: list) -> str:
 
         response = self._chat(
             model=self.model,
             messages=messages,
+            think=False,
+            keep_alive=self.keep_alive,
+            options={
+                "num_predict": self.num_predict,
+                "temperature": self.temperature,
+            },
         )
 
         return response["message"]["content"]
@@ -193,8 +210,12 @@ def ask_llm(prompt: str) -> str:
             }
         )
 
+        started_at = time.time()
+
         # Generate response from active backend
         reply = _get_backend().generate(messages).strip()
+
+        log(f"LLM response generated in {time.time() - started_at:.1f}s")
 
         # Save this turn to memory
         conversation_history.append(

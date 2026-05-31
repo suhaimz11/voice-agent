@@ -144,8 +144,9 @@ python main.py
 
 # Current Voice Behavior
 
-- Wake phrase: `Hey Jarvis`
-- Wake detector model: `hey_jarvis`
+- Desired wake phrase: `Hey Jenny`
+- Wake detector model: `models/hey_jenny.onnx` when present
+- Temporary fallback model: `hey_jarvis` if the Jenny wake model is not found
 - Wake threshold: `0.5`
 - Recorder VAD threshold: `0.35`
 - Start-speaking timeout: `4.0` seconds
@@ -156,6 +157,19 @@ python main.py
 - Barge-in grace period: `0.4` seconds
 
 These values are tuned in `wakeword/detector.py`, `audio/recorder.py`, and `main.py`.
+
+Useful speed/config environment variables:
+
+```text
+VOICE_AGENT_WAKE_WORD=hey jenny
+VOICE_AGENT_WAKE_MODEL=models/hey_jenny.onnx
+VOICE_AGENT_STT_MODEL=small
+VOICE_AGENT_STT_BEAM_SIZE=1
+VOICE_AGENT_STT_BEST_OF=1
+VOICE_AGENT_STT_VAD_FILTER=false
+OLLAMA_NUM_PREDICT=80
+OLLAMA_KEEP_ALIVE=10m
+```
 
 ---
 

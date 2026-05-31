@@ -4,6 +4,7 @@ Wake word detection using openWakeWord.
 
 import queue
 import time as time_module
+from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
@@ -12,20 +13,44 @@ from openwakeword.model import Model
 from utils.logger import log
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CUSTOM_MODEL_DIR = PROJECT_ROOT / "models"
+
+BUILT_IN_WAKE_WORDS = {
+    "alexa",
+    "hey_jarvis",
+    "hey_mycroft",
+    "hey_rhasspy",
+    "timer",
+    "weather",
+}
+
+
 class WakeWordDetector:
 
     def __init__(
         self,
-        wake_word: str = "hey jarvis",
+        wake_word: str = "hey jenny",
+        model_path: str | None = None,
+        fallback_wake_word: str = "hey jarvis",
         threshold: float = 0.5,
         patience: int = 1,
         ignore_initial_seconds: float = 0.2,
     ):
 
-        self.wake_word = self._normalize_wake_word(wake_word)
+        requested_wake_word = self._normalize_wake_word(wake_word)
+
+        resolved_model, active_wake_word = self._resolve_model(
+            requested_wake_word=requested_wake_word,
+            model_path=model_path,
+            fallback_wake_word=fallback_wake_word,
+        )
+
+        self.wake_word = active_wake_word
+        self.requested_wake_word = requested_wake_word
 
         self.model = Model(
-            wakeword_models=[self.wake_word],
+            wakeword_models=[resolved_model],
             inference_framework="onnx"
         )
 
@@ -41,10 +66,61 @@ class WakeWordDetector:
 
         self.ignore_initial_seconds = ignore_initial_seconds
 
+        log(
+            (
+                f"Wake word armed: requested='{self.requested_wake_word}', "
+                f"active='{self.wake_word}'"
+            )
+        )
+
     # -----------------------------------------------------
     @staticmethod
     def _normalize_wake_word(wake_word: str) -> str:
         return wake_word.strip().lower().replace(" ", "_")
+
+    # -----------------------------------------------------
+    @classmethod
+    def _resolve_model(
+        cls,
+        requested_wake_word: str,
+        model_path: str | None,
+        fallback_wake_word: str,
+    ) -> tuple[str, str]:
+
+        if model_path:
+            path = Path(model_path)
+
+            if path.exists():
+                return str(path), path.stem
+
+            log(
+                (
+                    f"Wake model not found at '{model_path}'. "
+                    "Checking built-in and default model paths."
+                ),
+                level="warning",
+            )
+
+        candidate = CUSTOM_MODEL_DIR / f"{requested_wake_word}.onnx"
+
+        if candidate.exists():
+            return str(candidate), candidate.stem
+
+        if requested_wake_word in BUILT_IN_WAKE_WORDS:
+            return requested_wake_word, requested_wake_word
+
+        fallback = cls._normalize_wake_word(fallback_wake_word)
+
+        log(
+            (
+                f"Wake word '{requested_wake_word}' needs a custom model at "
+                f"'{CUSTOM_MODEL_DIR / (requested_wake_word + '.onnx')}'. "
+                f"Using '{fallback}' for now."
+            ),
+            level="warning",
+        )
+
+        return fallback, fallback
 
     # -----------------------------------------------------
     def _audio_callback(

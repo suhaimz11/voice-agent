@@ -15,6 +15,15 @@ from faster_whisper import WhisperModel
 from utils.logger import log
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+
+    if value is None:
+        return default
+
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class WhisperSTT:
 
     def __init__(
@@ -22,6 +31,9 @@ class WhisperSTT:
         model_size: str = "tiny.en",
         device: str = "cpu",
         compute_type: str = "int8",
+        beam_size: int | None = None,
+        best_of: int | None = None,
+        vad_filter: bool | None = None,
     ):
         """
         Load faster-whisper model during startup.
@@ -38,6 +50,25 @@ class WhisperSTT:
             float32    -> fallback for older hardware
         """
 
+        self.beam_size = int(
+            os.environ.get(
+                "VOICE_AGENT_STT_BEAM_SIZE",
+                str(beam_size if beam_size is not None else 1),
+            )
+        )
+
+        self.best_of = int(
+            os.environ.get(
+                "VOICE_AGENT_STT_BEST_OF",
+                str(best_of if best_of is not None else 1),
+            )
+        )
+
+        self.vad_filter = _env_bool(
+            "VOICE_AGENT_STT_VAD_FILTER",
+            vad_filter if vad_filter is not None else False,
+        )
+
         log(
             f"Loading faster-whisper model '{model_size}' "
             f"[device={device}, compute_type={compute_type}]..."
@@ -51,6 +82,14 @@ class WhisperSTT:
 
         log(
             f"faster-whisper '{model_size}' loaded ✓"
+        )
+
+        log(
+            (
+                "STT decode settings "
+                f"(beam_size={self.beam_size}, best_of={self.best_of}, "
+                f"vad_filter={self.vad_filter})"
+            )
         )
 
     # ---------------------------------------------------------
@@ -73,8 +112,12 @@ class WhisperSTT:
                 # Set to None for auto language detection
                 language=language,
 
-                # Suppress blank/silence outputs
-                vad_filter=True,
+                # Recorder already trims silence; disabling this avoids a
+                # second VAD pass unless explicitly enabled.
+                vad_filter=self.vad_filter,
+                beam_size=self.beam_size,
+                best_of=self.best_of,
+                condition_on_previous_text=False,
             )
 
             # Segments are a lazy generator — consume fully
