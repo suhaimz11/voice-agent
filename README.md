@@ -161,6 +161,8 @@ Useful speed/config environment variables:
 
 ```text
 VOICE_AGENT_WAKE_WORD=alexa
+VOICE_AGENT_INPUT_DEVICE=Microphone
+VOICE_AGENT_OUTPUT_DEVICE=Speakers
 VOICE_AGENT_STT_MODEL=small
 VOICE_AGENT_STT_BEAM_SIZE=1
 VOICE_AGENT_STT_BEST_OF=1
@@ -168,6 +170,10 @@ VOICE_AGENT_STT_VAD_FILTER=false
 OLLAMA_NUM_PREDICT=80
 OLLAMA_KEEP_ALIVE=10m
 ```
+
+`VOICE_AGENT_INPUT_DEVICE` and `VOICE_AGENT_OUTPUT_DEVICE` can be either
+a sounddevice index, such as `1`, or a case-insensitive device name fragment,
+such as `Yeti` or `Realtek`.
 
 ---
 

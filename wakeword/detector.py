@@ -35,6 +35,7 @@ class WakeWordDetector:
         threshold: float = 0.5,
         patience: int = 1,
         ignore_initial_seconds: float = 0.2,
+        input_device: int | None = None,
     ):
 
         requested_wake_word = self._normalize_wake_word(wake_word)
@@ -65,10 +66,13 @@ class WakeWordDetector:
 
         self.ignore_initial_seconds = ignore_initial_seconds
 
+        self.input_device = input_device
+
         log(
             (
                 f"Wake word armed: requested='{self.requested_wake_word}', "
-                f"active='{self.wake_word}'"
+                f"active='{self.wake_word}', "
+                f"input_device={self.input_device}"
             )
         )
 
@@ -178,6 +182,8 @@ class WakeWordDetector:
             dtype="int16",
 
             blocksize=self.chunk_size,
+
+            device=self.input_device,
 
             callback=self._audio_callback
 

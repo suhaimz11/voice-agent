@@ -11,6 +11,11 @@ Wake Word
 import os
 import time
 
+from audio.devices import (
+    log_audio_devices,
+    resolve_input_device,
+    resolve_output_device,
+)
 from audio.recorder import AudioRecorder
 from stt.whisper_stt import WhisperSTT
 from tts.tts_engine import TTSEngine
@@ -38,8 +43,15 @@ def main():
 
     log("Voice Agent starting")
 
+    log_audio_devices()
+
+    input_device = resolve_input_device()
+    output_device = resolve_output_device()
+
     # Core components
-    recorder = AudioRecorder()
+    recorder = AudioRecorder(
+        input_device=input_device,
+    )
 
     stt = WhisperSTT(
         model_size=STT_MODEL_SIZE,
@@ -47,13 +59,17 @@ def main():
         compute_type=STT_COMPUTE_TYPE,
     )
 
-    tts = TTSEngine()
+    tts = TTSEngine(
+        input_device=input_device,
+        output_device=output_device,
+    )
 
     agent = AgentProcessor()
 
     wakeword = WakeWordDetector(
         wake_word=WAKE_WORD,
         model_path=WAKE_MODEL_PATH,
+        input_device=input_device,
     )
 
     log("System ready")

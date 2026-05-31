@@ -35,6 +35,7 @@ class AudioRecorder:
         silence_duration: float = 2.5,
         no_speech_timeout: float = 4.0,
         max_record_seconds: float = 45.0,
+        input_device: int | None = None,
     ):
 
         # Whisper performs best at 16kHz mono audio
@@ -56,6 +57,8 @@ class AudioRecorder:
         # Safety cap to avoid endless recording
         self.max_record_seconds = max_record_seconds
 
+        self.input_device = input_device
+
         # openWakeWord VAD uses Silero via ONNX Runtime internally
         self.vad = VAD()
 
@@ -64,7 +67,8 @@ class AudioRecorder:
                 "AudioRecorder initialized "
                 f"(start_timeout={self.no_speech_timeout}s, "
                 f"end_silence={self.silence_duration}s, "
-                f"vad_threshold={self.vad_threshold})"
+                f"vad_threshold={self.vad_threshold}, "
+                f"input_device={self.input_device})"
             )
         )
 
@@ -126,6 +130,7 @@ class AudioRecorder:
             blocksize=self.chunk_size,
             channels=self.channels,
             dtype="int16",
+            device=self.input_device,
         ) as stream:
 
             for chunk_index in range(max_chunks):

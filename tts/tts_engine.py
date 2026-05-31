@@ -54,6 +54,8 @@ class TTSEngine:
         barge_in_threshold: float = 1200,
         barge_in_grace_seconds: float = 0.4,
         barge_in_duration: float = 0.15,
+        input_device: int | None = None,
+        output_device: int | None = None,
     ):
 
         self.rate = rate
@@ -65,6 +67,8 @@ class TTSEngine:
         self.barge_in_duration = barge_in_duration
         self.barge_in_sample_rate = 16000
         self.barge_in_chunk_size = 1024
+        self.input_device = input_device
+        self.output_device = output_device
 
         # Piper speed control — mapped from pyttsx3-style rate
         self._length_scale = self._rate_to_length_scale(rate)
@@ -102,7 +106,13 @@ class TTSEngine:
             import pyttsx3 as _pyttsx3
             self._pyttsx3 = _pyttsx3
 
-        log("TTSEngine initialized")
+        log(
+            (
+                "TTSEngine initialized "
+                f"(input_device={self.input_device}, "
+                f"output_device={self.output_device})"
+            )
+        )
 
     # ---------------------------------------------------------
     # Helpers
@@ -251,7 +261,11 @@ class TTSEngine:
 
             audio, sample_rate = self._synthesize(text)
 
-            sd.play(audio, sample_rate)
+            sd.play(
+                audio,
+                sample_rate,
+                device=self.output_device,
+            )
             sd.wait()
 
         else:
@@ -305,13 +319,18 @@ class TTSEngine:
 
         try:
 
-            sd.play(audio, sample_rate)
+            sd.play(
+                audio,
+                sample_rate,
+                device=self.output_device,
+            )
 
             with sd.RawInputStream(
                 samplerate=self.barge_in_sample_rate,
                 blocksize=self.barge_in_chunk_size,
                 channels=1,
                 dtype="int16",
+                device=self.input_device,
             ) as mic:
 
                 while True:
@@ -433,6 +452,7 @@ class TTSEngine:
                 blocksize=self.barge_in_chunk_size,
                 channels=1,
                 dtype="int16",
+                device=self.input_device,
             ) as mic:
 
                 while not speech_done.is_set():
