@@ -2,7 +2,7 @@
 
 A local Python voice assistant with wake-word activation, speech-to-text, local agent processing, and offline text-to-speech.
 
-The assistant waits for "Hey Jarvis", records the user's request, transcribes it with Whisper, processes it through the local agent/LLM stack, speaks the response, and stays active for follow-up questions until there is 10 seconds of silence.
+The assistant waits for "Alexa", records the user's request, transcribes it with Whisper, processes it through the local agent/LLM stack, speaks the response, and stays active for follow-up questions until there is 10 seconds of silence.
 
 ---
 
@@ -71,7 +71,7 @@ voice_agent/
 
 ```text
 Sleep mode
--> Listen for "Hey Jarvis"
+-> Listen for "Alexa"
 -> Active session
 -> Record speech until silence
 -> Transcribe with Whisper
@@ -144,9 +144,8 @@ python main.py
 
 # Current Voice Behavior
 
-- Desired wake phrase: `Hey Jenny`
-- Wake detector model: `models/hey_jenny.onnx` when present
-- Temporary fallback model: `hey_jarvis` if the Jenny wake model is not found
+- Wake phrase: `Alexa`
+- Wake detector model: built-in `alexa`
 - Wake threshold: `0.5`
 - Recorder VAD threshold: `0.35`
 - Start-speaking timeout: `4.0` seconds
@@ -161,8 +160,7 @@ These values are tuned in `wakeword/detector.py`, `audio/recorder.py`, and `main
 Useful speed/config environment variables:
 
 ```text
-VOICE_AGENT_WAKE_WORD=hey jenny
-VOICE_AGENT_WAKE_MODEL=models/hey_jenny.onnx
+VOICE_AGENT_WAKE_WORD=alexa
 VOICE_AGENT_STT_MODEL=small
 VOICE_AGENT_STT_BEAM_SIZE=1
 VOICE_AGENT_STT_BEST_OF=1
@@ -272,7 +270,7 @@ The `logs/` directory is ignored by git.
 # Example
 
 ```text
-User: Hey Jarvis
+User: Alexa
 Assistant: Listening...
 
 User: What is Ethereum?

@@ -30,7 +30,7 @@ RESPONSE_COOLDOWN = 1.0
 STT_MODEL_SIZE = os.environ.get("VOICE_AGENT_STT_MODEL", "small")
 STT_DEVICE = os.environ.get("VOICE_AGENT_STT_DEVICE", "cpu")
 STT_COMPUTE_TYPE = os.environ.get("VOICE_AGENT_STT_COMPUTE_TYPE", "int8")
-WAKE_WORD = os.environ.get("VOICE_AGENT_WAKE_WORD", "hey jenny")
+WAKE_WORD = os.environ.get("VOICE_AGENT_WAKE_WORD", "alexa")
 WAKE_MODEL_PATH = os.environ.get("VOICE_AGENT_WAKE_MODEL")
 
 

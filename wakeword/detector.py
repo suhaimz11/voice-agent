@@ -18,7 +18,6 @@ CUSTOM_MODEL_DIR = PROJECT_ROOT / "models"
 
 BUILT_IN_WAKE_WORDS = {
     "alexa",
-    "hey_jarvis",
     "hey_mycroft",
     "hey_rhasspy",
     "timer",
@@ -30,9 +29,9 @@ class WakeWordDetector:
 
     def __init__(
         self,
-        wake_word: str = "hey jenny",
+        wake_word: str = "alexa",
         model_path: str | None = None,
-        fallback_wake_word: str = "hey jarvis",
+        fallback_wake_word: str = "alexa",
         threshold: float = 0.5,
         patience: int = 1,
         ignore_initial_seconds: float = 0.2,
