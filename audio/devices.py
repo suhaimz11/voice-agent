@@ -9,6 +9,7 @@ Configuration:
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import sounddevice as sd
@@ -19,10 +20,16 @@ from utils.logger import log
 INPUT_DEVICE_ENV = "VOICE_AGENT_INPUT_DEVICE"
 OUTPUT_DEVICE_ENV = "VOICE_AGENT_OUTPUT_DEVICE"
 
+_VIRTUAL_DEVICE_PREFIXES = (
+    "microsoft sound mapper",
+    "primary sound",
+    "primary sound capture",
+)
+
 
 def log_audio_devices() -> None:
     """
-    Log all available audio devices with input/output capabilities.
+    Log all currently available audio devices with input/output capabilities.
     """
 
     try:
@@ -37,9 +44,14 @@ def log_audio_devices() -> None:
         log("No audio devices reported by sounddevice.", level="warning")
         return
 
+    available = _available_device_indexes(devices)
+
     log("Available audio devices:")
 
     for index, device in enumerate(devices):
+        if index not in available:
+            continue
+
         name = str(device.get("name", "unknown"))
         input_channels = int(device.get("max_input_channels", 0))
         output_channels = int(device.get("max_output_channels", 0))
@@ -144,6 +156,16 @@ def _resolve_device_index(
         )
         return None
 
+    if not _is_device_available(index):
+        log(
+            (
+                f"Configured {kind} device [{index}] "
+                f"{devices[index].get('name', 'unknown')} is not currently available."
+            ),
+            level="warning",
+        )
+        return None
+
     device = devices[index]
 
     if not _supports_kind(device, kind):
@@ -168,12 +190,14 @@ def _resolve_device_name(
 ) -> int | None:
 
     selected_lower = selected_text.lower()
+    available = _available_device_indexes(devices)
 
     matches = [
         (index, device)
         for index, device in enumerate(devices)
         if (
-            _supports_kind(device, kind)
+            index in available
+            and _supports_kind(device, kind)
             and selected_lower in str(device.get("name", "")).lower()
         )
     ]
@@ -210,6 +234,45 @@ def _resolve_device_name(
     )
 
     return selected_index
+
+
+def _is_device_available(index: int) -> bool:
+    """Return True only if the device can actually be opened right now."""
+    try:
+        device = sd.query_devices(index)
+        input_ch = int(device.get("max_input_channels", 0))
+        output_ch = int(device.get("max_output_channels", 0))
+
+        if input_ch == 0 and output_ch == 0:
+            return False
+
+        # Fast pre-filter: skip Windows virtual mapper aliases
+        name_lower = str(device.get("name", "")).lower()
+        if any(name_lower.startswith(prefix) for prefix in _VIRTUAL_DEVICE_PREFIXES):
+            return False
+
+        # Actually try to open a stream to confirm hardware is present
+        if input_ch > 0:
+            with sd.InputStream(device=index, channels=1, samplerate=16000):
+                pass
+        else:
+            with sd.OutputStream(device=index, channels=1, samplerate=44100):
+                pass
+
+        return True
+
+    except Exception:
+        return False
+
+
+def _available_device_indexes(devices: list[Any]) -> set[int]:
+    """Check all devices in parallel to keep startup fast."""
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {
+            executor.submit(_is_device_available, i): i
+            for i in range(len(devices))
+        }
+        return {futures[f] for f in as_completed(futures) if f.result()}
 
 
 def _supports_kind(device: Any, kind: str) -> bool:
