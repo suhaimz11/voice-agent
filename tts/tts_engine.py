@@ -26,7 +26,13 @@ import wave
 import numpy as np
 import sounddevice as sd
 
-from utils.logger import log
+from utils.logger import (
+    elapsed_seconds,
+    format_duration,
+    log,
+    log_timing,
+    monotonic_seconds,
+)
 
 
 # --- Optional Piper import ---
@@ -229,6 +235,8 @@ class TTSEngine:
         Returns (audio_array, sample_rate) — no temp files.
         """
 
+        started_at = monotonic_seconds()
+
         buf = io.BytesIO()
 
         with wave.open(buf, "wb") as wf:
@@ -245,6 +253,19 @@ class TTSEngine:
             .astype(np.float32) / 32768.0
         )
 
+        audio_duration = len(audio) / sample_rate if sample_rate else 0.0
+
+        log_timing(
+            "TTS generation",
+            started_at,
+            details=(
+                f"backend=piper, text_chars={len(text)}, "
+                f"audio={format_duration(audio_duration)}, "
+                f"samples={len(audio)}, sample_rate={sample_rate}, "
+                f"length_scale={self._length_scale}"
+            ),
+        )
+
         return audio, sample_rate
 
     # ---------------------------------------------------------
@@ -253,13 +274,15 @@ class TTSEngine:
 
     def _speak_blocking(self, text: str) -> bool:
 
-        started_at = time.time()
+        started_at = monotonic_seconds()
 
         log(f"TTS started: {text}")
 
         if self._use_piper:
 
             audio, sample_rate = self._synthesize(text)
+
+            playback_started_at = monotonic_seconds()
 
             sd.play(
                 audio,
@@ -268,14 +291,66 @@ class TTSEngine:
             )
             sd.wait()
 
+            audio_duration = len(audio) / sample_rate if sample_rate else 0.0
+
+            log_timing(
+                "TTS playback",
+                playback_started_at,
+                details=(
+                    "backend=piper, mode=blocking, result=completed, "
+                    f"audio={format_duration(audio_duration)}, "
+                    f"output_device={self.output_device}"
+                ),
+            )
+
         else:
 
+            setup_started_at = monotonic_seconds()
+
             engine = self._configure_pyttsx3()
+
+            log_timing(
+                "TTS engine setup",
+                setup_started_at,
+                details="backend=pyttsx3, mode=blocking",
+            )
+
+            generation_started_at = monotonic_seconds()
+
             engine.say(text)
+
+            log_timing(
+                "TTS generation",
+                generation_started_at,
+                details=(
+                    "backend=pyttsx3, mode=queued, "
+                    f"text_chars={len(text)}"
+                ),
+            )
+
+            playback_started_at = monotonic_seconds()
+
             engine.runAndWait()
+
+            log_timing(
+                "TTS playback",
+                playback_started_at,
+                details=(
+                    "backend=pyttsx3, mode=blocking, result=completed"
+                ),
+            )
+
             engine.stop()
 
-        log(f"TTS finished in {time.time() - started_at:.1f}s")
+        log_timing(
+            "TTS total",
+            started_at,
+            details=(
+                f"mode=blocking, backend="
+                f"{'piper' if self._use_piper else 'pyttsx3'}, "
+                f"text_chars={len(text)}"
+            ),
+        )
 
         return True
 
@@ -285,7 +360,7 @@ class TTSEngine:
 
     def _speak_interruptible(self, text: str) -> bool:
 
-        started_at = time.time()
+        started_at = monotonic_seconds()
 
         log(f"TTS started (interruptible): {text}")
 
@@ -317,6 +392,10 @@ class TTSEngine:
 
         audio, sample_rate = self._synthesize(text)
 
+        audio_duration = len(audio) / sample_rate if sample_rate else 0.0
+
+        playback_started_at = monotonic_seconds()
+
         try:
 
             sd.play(
@@ -343,7 +422,7 @@ class TTSEngine:
                         break
 
                     if (
-                        time.time() - started_at
+                        elapsed_seconds(started_at)
                         >= self.barge_in_grace_seconds
                     ):
 
@@ -387,13 +466,45 @@ class TTSEngine:
             sd.stop()
 
         if interrupted:
+            log_timing(
+                "TTS playback",
+                playback_started_at,
+                details=(
+                    "backend=piper, mode=interruptible, result=interrupted, "
+                    f"audio={format_duration(audio_duration)}, "
+                    f"max_barge_in_rms={max_rms:.0f}, "
+                    f"threshold={self.barge_in_threshold:.0f}"
+                ),
+            )
+
+            log_timing(
+                "TTS total",
+                started_at,
+                details=(
+                    "backend=piper, mode=interruptible, result=interrupted, "
+                    f"text_chars={len(text)}"
+                ),
+            )
+
             return False
 
-        log(
-            (
-                f"TTS finished in {time.time() - started_at:.1f}s "
-                f"(max_barge_in_rms={max_rms:.0f})"
-            )
+        log_timing(
+            "TTS playback",
+            playback_started_at,
+            details=(
+                "backend=piper, mode=interruptible, result=completed, "
+                f"audio={format_duration(audio_duration)}, "
+                f"max_barge_in_rms={max_rms:.0f}"
+            ),
+        )
+
+        log_timing(
+            "TTS total",
+            started_at,
+            details=(
+                "backend=piper, mode=interruptible, result=completed, "
+                f"text_chars={len(text)}"
+            ),
         )
 
         return True
@@ -426,10 +537,33 @@ class TTSEngine:
 
         def run_speech():
             try:
+                setup_started_at = monotonic_seconds()
+
                 engine = self._configure_pyttsx3()
+
                 engine_holder["engine"] = engine
+
+                log_timing(
+                    "TTS engine setup",
+                    setup_started_at,
+                    details="backend=pyttsx3, mode=interruptible",
+                )
+
                 speech_ready.set()
+
+                generation_started_at = monotonic_seconds()
+
                 engine.say(text)
+
+                log_timing(
+                    "TTS generation",
+                    generation_started_at,
+                    details=(
+                        "backend=pyttsx3, mode=queued, "
+                        f"text_chars={len(text)}"
+                    ),
+                )
+
                 engine.runAndWait()
             except Exception as e:
                 speech_error.append(e)
@@ -445,6 +579,8 @@ class TTSEngine:
         speech_thread.start()
         speech_ready.wait(timeout=2.0)
 
+        playback_started_at = monotonic_seconds()
+
         try:
 
             with sd.RawInputStream(
@@ -458,7 +594,7 @@ class TTSEngine:
                 while not speech_done.is_set():
 
                     if (
-                        time.time() - started_at
+                        elapsed_seconds(started_at)
                         >= self.barge_in_grace_seconds
                     ):
 
@@ -515,14 +651,45 @@ class TTSEngine:
             raise speech_error[0]
 
         if interrupted:
+            log_timing(
+                "TTS playback",
+                playback_started_at,
+                details=(
+                    "backend=pyttsx3, mode=interruptible, "
+                    "result=interrupted, "
+                    f"max_barge_in_rms={max_rms:.0f}, "
+                    f"threshold={self.barge_in_threshold:.0f}"
+                ),
+            )
+
+            log_timing(
+                "TTS total",
+                started_at,
+                details=(
+                    "backend=pyttsx3, mode=interruptible, "
+                    f"result=interrupted, text_chars={len(text)}"
+                ),
+            )
+
             return False
 
-        log(
-            (
-                f"TTS finished in {time.time() - started_at:.1f}s "
-                f"(max_barge_in_rms={max_rms:.0f}, "
-                f"threshold={self.barge_in_threshold:.0f})"
-            )
+        log_timing(
+            "TTS playback",
+            playback_started_at,
+            details=(
+                "backend=pyttsx3, mode=interruptible, result=completed, "
+                f"max_barge_in_rms={max_rms:.0f}, "
+                f"threshold={self.barge_in_threshold:.0f}"
+            ),
+        )
+
+        log_timing(
+            "TTS total",
+            started_at,
+            details=(
+                "backend=pyttsx3, mode=interruptible, result=completed, "
+                f"text_chars={len(text)}"
+            ),
         )
 
         return True

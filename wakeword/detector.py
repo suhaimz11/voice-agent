@@ -3,14 +3,19 @@ Wake word detection using openWakeWord.
 """
 
 import queue
-import time as time_module
 from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
 
 from openwakeword.model import Model
-from utils.logger import log
+from utils.logger import (
+    elapsed_seconds,
+    format_duration,
+    log,
+    log_timing,
+    monotonic_seconds,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -171,7 +176,15 @@ class WakeWordDetector:
 
         detected = False
 
-        started_at = time_module.time()
+        started_at = monotonic_seconds()
+
+        chunks_seen = 0
+
+        ignored_chunks = 0
+
+        inference_calls = 0
+
+        inference_elapsed = 0.0
 
         stream = sd.InputStream(
 
@@ -197,10 +210,13 @@ class WakeWordDetector:
 
                 audio = self.audio_queue.get()
 
+                chunks_seen += 1
+
                 if (
-                    time_module.time() - started_at
+                    elapsed_seconds(started_at)
                     < self.ignore_initial_seconds
                 ):
+                    ignored_chunks += 1
                     continue
 
                 audio = np.frombuffer(
@@ -208,11 +224,17 @@ class WakeWordDetector:
                     dtype=np.int16
                 )
 
+                inference_started_at = monotonic_seconds()
+
                 prediction = self.model.predict(
                     audio,
                     patience={self.wake_word: self.patience},
                     threshold={self.wake_word: self.threshold},
                 )
+
+                inference_elapsed += elapsed_seconds(inference_started_at)
+
+                inference_calls += 1
 
                 score = prediction.get(
                     self.wake_word,
@@ -226,6 +248,25 @@ class WakeWordDetector:
                             f"Wake word detected: {self.wake_word} "
                             f"(score={score:.3f})"
                         )
+                    )
+
+                    avg_inference = (
+                        inference_elapsed / inference_calls
+                        if inference_calls
+                        else 0.0
+                    )
+
+                    log_timing(
+                        "Wake word detection",
+                        started_at,
+                        details=(
+                            f"wake_word={self.wake_word}, "
+                            f"score={score:.3f}, "
+                            f"chunks={chunks_seen}, "
+                            f"ignored_chunks={ignored_chunks}, "
+                            f"inferences={inference_calls}, "
+                            f"avg_inference={format_duration(avg_inference)}"
+                        ),
                     )
 
                     self.reset()

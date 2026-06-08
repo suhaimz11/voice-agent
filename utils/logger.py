@@ -7,6 +7,7 @@ Writes readable logs to the console and to logs/voice_agent.log.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -76,4 +77,49 @@ def log(msg: str, level: str = "info", exc_info: bool = False):
     log_method(
         msg,
         exc_info=exc_info
+    )
+
+
+def monotonic_seconds() -> float:
+    """
+    Return a monotonic timestamp for elapsed-time measurement.
+    """
+
+    return time.perf_counter()
+
+
+def elapsed_seconds(started_at: float) -> float:
+    """
+    Return elapsed seconds from a monotonic start timestamp.
+    """
+
+    return monotonic_seconds() - started_at
+
+
+def format_duration(seconds: float) -> str:
+    """
+    Format elapsed time consistently for human-readable timing logs.
+    """
+
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+
+    return f"{seconds:.2f}s"
+
+
+def log_timing(
+    stage: str,
+    started_at: float,
+    level: str = "info",
+    details: str | None = None,
+):
+    """
+    Log a consistently formatted elapsed-time message for a pipeline stage.
+    """
+
+    suffix = f" ({details})" if details else ""
+
+    log(
+        f"Timing | {stage}: {format_duration(elapsed_seconds(started_at))}{suffix}",
+        level=level,
     )

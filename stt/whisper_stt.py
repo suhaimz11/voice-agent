@@ -8,11 +8,16 @@ Uses CTranslate2 backend — no PyTorch required.
 """
 
 import os
-import time
 
 from faster_whisper import WhisperModel
 
-from utils.logger import log
+from utils.logger import (
+    elapsed_seconds,
+    format_duration,
+    log,
+    log_timing,
+    monotonic_seconds,
+)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -104,7 +109,9 @@ class WhisperSTT:
 
         try:
 
-            started_at = time.time()
+            started_at = monotonic_seconds()
+
+            transcribe_call_started_at = monotonic_seconds()
 
             segments, info = self.model.transcribe(
                 audio_path,
@@ -121,27 +128,77 @@ class WhisperSTT:
             )
 
             # Segments are a lazy generator — consume fully
-            text = " ".join(
-                segment.text for segment in segments
-            ).strip()
-
-            log(
-                (
-                    "Transcription complete "
-                    f"in {time.time() - started_at:.1f}s: '{text}'"
-                )
+            transcribe_call_duration = elapsed_seconds(
+                transcribe_call_started_at
             )
 
+            segment_decode_started_at = monotonic_seconds()
+
+            segment_list = list(segments)
+
+            segment_decode_duration = elapsed_seconds(
+                segment_decode_started_at
+            )
+
+            text = " ".join(
+                segment.text for segment in segment_list
+            ).strip()
+
             # Cleanup temp audio file
+            cleanup_started_at = monotonic_seconds()
+
+            cleanup_status = "removed"
+
             try:
                 os.remove(audio_path)
 
             except Exception:
-                pass
+                cleanup_status = "failed"
+
+            cleanup_duration = elapsed_seconds(cleanup_started_at)
+
+            details = [
+                f"audio_path={audio_path}",
+                f"segments={len(segment_list)}",
+                f"chars={len(text)}",
+                f"transcribe_call={format_duration(transcribe_call_duration)}",
+                f"segment_decode={format_duration(segment_decode_duration)}",
+                f"cleanup={cleanup_status}/{format_duration(cleanup_duration)}",
+            ]
+
+            detected_language = getattr(info, "language", None)
+
+            if detected_language:
+                details.append(f"language={detected_language}")
+
+            language_probability = getattr(info, "language_probability", None)
+
+            if isinstance(language_probability, (int, float)):
+                details.append(f"language_probability={language_probability:.2f}")
+
+            audio_duration = getattr(info, "duration", None)
+
+            if isinstance(audio_duration, (int, float)):
+                details.append(f"audio={format_duration(audio_duration)}")
+
+            log_timing(
+                "Transcription",
+                started_at,
+                details=", ".join(details),
+            )
+
+            log(f"Transcription text: '{text}'")
 
             return text
 
         except Exception as e:
+
+            log_timing(
+                "Transcription failed",
+                started_at,
+                level="error",
+                details=str(e),
+            )
 
             log(
                 f"Whisper transcription error: {e}",

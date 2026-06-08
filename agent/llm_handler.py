@@ -13,9 +13,14 @@ Handles:
 """
 
 import os
-import time
 
-from utils.logger import log
+from utils.logger import (
+    elapsed_seconds,
+    format_duration,
+    log,
+    log_timing,
+    monotonic_seconds,
+)
 
 
 # -----------------------------------------------------------
@@ -109,6 +114,8 @@ class LlamaCppBackend:
             f"(model={model_path}, threads={n_threads}, ctx={n_ctx})"
         )
 
+        self.model = model_path
+
         self.llm = Llama(
             model_path=model_path,
             n_threads=n_threads,
@@ -157,11 +164,28 @@ def _load_backend():
 _backend = None
 
 
+def _describe_backend(backend) -> str:
+    model = getattr(backend, "model", None)
+
+    if model:
+        return f"{backend.__class__.__name__}/{model}"
+
+    return backend.__class__.__name__
+
+
 def _get_backend():
     global _backend
 
     if _backend is None:
+        started_at = monotonic_seconds()
+
         _backend = _load_backend()
+
+        log_timing(
+            "LLM backend load",
+            started_at,
+            details=f"backend={_describe_backend(_backend)}",
+        )
 
     return _backend
 
@@ -189,6 +213,8 @@ def ask_llm(prompt: str) -> str:
     and return the assistant response.
     """
 
+    started_at = monotonic_seconds()
+
     try:
 
         # Build message list
@@ -210,12 +236,30 @@ def ask_llm(prompt: str) -> str:
             }
         )
 
-        started_at = time.time()
+        backend_ready_started_at = monotonic_seconds()
+
+        backend = _get_backend()
+
+        backend_ready_duration = elapsed_seconds(backend_ready_started_at)
+
+        generation_started_at = monotonic_seconds()
 
         # Generate response from active backend
-        reply = _get_backend().generate(messages).strip()
+        reply = backend.generate(messages).strip()
 
-        log(f"LLM response generated in {time.time() - started_at:.1f}s")
+        generation_duration = elapsed_seconds(generation_started_at)
+
+        log_timing(
+            "LLM generation",
+            generation_started_at,
+            details=(
+                f"backend={_describe_backend(backend)}, "
+                f"messages={len(messages)}, "
+                f"history_turns={len(conversation_history)}, "
+                f"prompt_chars={len(prompt)}, "
+                f"response_chars={len(reply)}"
+            ),
+        )
 
         # Save this turn to memory
         conversation_history.append(
@@ -239,9 +283,26 @@ def ask_llm(prompt: str) -> str:
                 : len(conversation_history) - MAX_HISTORY
             ]
 
+        log_timing(
+            "LLM processing",
+            started_at,
+            details=(
+                f"backend_ready={format_duration(backend_ready_duration)}, "
+                f"generation={format_duration(generation_duration)}, "
+                f"history_turns_after={len(conversation_history)}"
+            ),
+        )
+
         return reply
 
     except Exception as e:
+
+        log_timing(
+            "LLM processing failed",
+            started_at,
+            level="error",
+            details=str(e),
+        )
 
         log(f"LLM error: {e}", level="error")
 

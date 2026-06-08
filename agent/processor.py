@@ -13,7 +13,7 @@ import re
 
 from agent.math_handler import handle_math
 from agent.llm_handler import ask_llm, reset_conversation
-from utils.logger import log
+from utils.logger import log, log_timing, monotonic_seconds
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +126,8 @@ class AgentProcessor:
         4. route to the appropriate handler
         """
 
+        started_at = monotonic_seconds()
+
         text = text.strip()
 
         # Clean copy used only for classification so that "stop." → "stop"
@@ -139,43 +141,57 @@ class AgentProcessor:
             level="debug",
         )
 
+        def finish(response: str) -> str:
+            log_timing(
+                "Agent processing",
+                started_at,
+                details=(
+                    f"intent={intent}, "
+                    f"used_llm={intent == 'UNKNOWN'}, "
+                    f"input_chars={len(text)}, "
+                    f"response_chars={len(response)}"
+                ),
+            )
+
+            return response
+
         # --- Conversation control commands ---
 
         if intent == "SLEEP":
-            return "__SLEEP__"
+            return finish("__SLEEP__")
 
         if intent == "EXIT":
-            return "__EXIT__"
+            return finish("__EXIT__")
 
         if intent == "RESET_CONVERSATION":
             self.reset_conversation()
-            return "__RESET_CONVERSATION__"
+            return finish("__RESET_CONVERSATION__")
 
         if intent == "REPEAT":
-            return "__REPEAT__"
+            return finish("__REPEAT__")
 
         if intent == "SPEAK_SLOWER":
-            return "__SPEAK_SLOWER__"
+            return finish("__SPEAK_SLOWER__")
 
         if intent == "SPEAK_FASTER":
-            return "__SPEAK_FASTER__"
+            return finish("__SPEAK_FASTER__")
 
         # --- Content intents (use original text for better accuracy) ---
 
         if intent == "GREETING":
-            return self._handle_greeting()
+            return finish(self._handle_greeting())
 
         if intent == "TIME":
-            return self._handle_time()
+            return finish(self._handle_time())
 
         if intent == "HELP":
-            return self._handle_help()
+            return finish(self._handle_help())
 
         if intent == "MATH":
-            return self._handle_math(text)
+            return finish(self._handle_math(text))
 
         # Fallback to LLM
-        return ask_llm(text)
+        return finish(ask_llm(text))
 
     # ---------------------------------------------------------
     def _classify(self, text: str) -> str:

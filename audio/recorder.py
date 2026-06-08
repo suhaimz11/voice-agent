@@ -9,7 +9,6 @@ VAD runs via openWakeWord which uses ONNX Runtime
 internally — no PyTorch required.
 """
 
-import time
 import tempfile
 import wave
 
@@ -17,7 +16,13 @@ import numpy as np
 import sounddevice as sd
 from openwakeword.vad import VAD
 
-from utils.logger import log
+from utils.logger import (
+    elapsed_seconds,
+    format_duration,
+    log,
+    log_timing,
+    monotonic_seconds,
+)
 
 
 # int16 = 2 bytes per sample — fixed, no PyAudio needed to look this up
@@ -86,11 +91,19 @@ class AudioRecorder:
 
         speaking = False
 
+        first_speech_at = None
+
         silent_chunks = 0
 
         max_vad_score = 0.0
 
         max_rms = 0.0
+
+        vad_calls = 0
+
+        vad_elapsed = 0.0
+
+        stop_reason = "max_record_seconds"
 
         chunks_per_second = (
             self.sample_rate / self.chunk_size
@@ -114,7 +127,7 @@ class AudioRecorder:
             effective_no_speech_timeout * chunks_per_second
         )
 
-        started_at = time.time()
+        started_at = monotonic_seconds()
 
         self.vad.reset_states()
 
@@ -150,6 +163,8 @@ class AudioRecorder:
                     np.sqrt(np.mean(arr ** 2))
                 )
 
+                vad_started_at = monotonic_seconds()
+
                 vad_score = float(
                     self.vad.predict(
                         arr.astype(np.int16),
@@ -157,12 +172,28 @@ class AudioRecorder:
                     )
                 )
 
+                vad_elapsed += elapsed_seconds(vad_started_at)
+
+                vad_calls += 1
+
                 max_rms = max(max_rms, rms)
 
                 max_vad_score = max(max_vad_score, vad_score)
 
                 # Voice activity detected
                 if vad_score >= self.vad_threshold:
+
+                    if not speaking:
+
+                        first_speech_at = elapsed_seconds(started_at)
+
+                        log(
+                            (
+                                "Speech detected "
+                                f"after {format_duration(first_speech_at)} "
+                                f"(vad={vad_score:.2f}, rms={rms:.0f})"
+                            )
+                        )
 
                     speaking = True
 
@@ -174,10 +205,12 @@ class AudioRecorder:
                         not speaking
                         and chunk_index >= no_speech_chunks_needed
                     ):
+                        stop_reason = "no_speech_timeout"
+
                         log(
                             (
                                 "No speech detected "
-                                f"after {time.time() - started_at:.1f}s"
+                                f"after {format_duration(elapsed_seconds(started_at))}"
                             ),
                             level="debug",
                         )
@@ -189,7 +222,16 @@ class AudioRecorder:
                         silent_chunks += 1
 
                         if silent_chunks >= silence_chunks_needed:
+                            stop_reason = "silence_detected"
                             break
+
+        captured_seconds = len(frames) / chunks_per_second
+
+        avg_vad_duration = (
+            vad_elapsed / vad_calls
+            if vad_calls
+            else 0.0
+        )
 
         # Ignore empty or noise-only recordings
         if not speaking or len(frames) < 5:
@@ -203,16 +245,44 @@ class AudioRecorder:
                 level="debug",
             )
 
+            log_timing(
+                "Recording",
+                started_at,
+                details=(
+                    f"result=discarded, reason={stop_reason}, "
+                    f"captured={format_duration(captured_seconds)}, "
+                    f"chunks={len(frames)}, "
+                    f"max_vad={max_vad_score:.2f}, "
+                    f"max_rms={max_rms:.0f}, "
+                    f"avg_vad={format_duration(avg_vad_duration)}"
+                ),
+            )
+
             return None
 
-        log(
-            (
-                f"Recording stopped after {time.time() - started_at:.1f}s "
-                f"(max_vad={max_vad_score:.2f}, max_rms={max_rms:.0f})"
-            )
+        save_started_at = monotonic_seconds()
+
+        audio_path = self._save_wav(frames)
+
+        save_duration = elapsed_seconds(save_started_at)
+
+        log_timing(
+            "Recording",
+            started_at,
+            details=(
+                f"result=saved, reason={stop_reason}, "
+                f"captured={format_duration(captured_seconds)}, "
+                f"speech_start={format_duration(first_speech_at or 0.0)}, "
+                f"chunks={len(frames)}, "
+                f"max_vad={max_vad_score:.2f}, "
+                f"max_rms={max_rms:.0f}, "
+                f"avg_vad={format_duration(avg_vad_duration)}, "
+                f"save={format_duration(save_duration)}, "
+                f"path={audio_path}"
+            ),
         )
 
-        return self._save_wav(frames)
+        return audio_path
 
     # ---------------------------------------------------------
     def _save_wav(self, frames: list) -> str:
