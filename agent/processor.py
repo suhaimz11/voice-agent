@@ -13,6 +13,7 @@ import re
 
 from agent.math_handler import handle_math
 from agent.llm_handler import ask_llm, reset_conversation
+from agent.memory_store import MemoryStore
 from utils.logger import log, log_timing, monotonic_seconds
 
 
@@ -87,6 +88,40 @@ HELP_TRIGGERS = re.compile(
     re.I,
 )
 
+MEMORY_QUERY_TRIGGERS = re.compile(
+    r"\b(what do you remember|show memory|what do you know about me)\b",
+    re.I,
+)
+
+NAME_PATTERNS = [
+    re.compile(
+        r"\b(?:my name is|call me)\s+(?P<value>[\w\s'-]{1,60})\s*$",
+        re.I,
+    ),
+]
+
+FAVORITE_PATTERNS = [
+    re.compile(
+        r"\bmy favorite\s+(?P<key>[\w\s'-]{1,40})\s+is\s+"
+        r"(?P<value>.+?)\s*$",
+        re.I,
+    ),
+]
+
+PREFERENCE_PATTERNS = [
+    re.compile(
+        r"\bi prefer\s+(?P<value>.+?)\s*$",
+        re.I,
+    ),
+]
+
+FACT_PATTERNS = [
+    re.compile(
+        r"\bremember(?: that)?\s+(?P<value>.+?)\s*$",
+        re.I,
+    ),
+]
+
 
 def _strip_punctuation(text: str) -> str:
     """
@@ -101,13 +136,15 @@ def _strip_punctuation(text: str) -> str:
 
 class AgentProcessor:
 
-    def __init__(self):
+    def __init__(self, memory_store: MemoryStore | None = None):
 
         # Lightweight conversation memory
         self.memory = {
             "last_result": None,
             "last_input": None,
         }
+
+        self.memory_store = memory_store or MemoryStore()
 
         log("AgentProcessor initialized")
 
@@ -187,11 +224,21 @@ class AgentProcessor:
         if intent == "HELP":
             return finish(self._handle_help())
 
+        memory_response = self._handle_memory(text)
+
+        if memory_response:
+            return finish(memory_response)
+
         if intent == "MATH":
             return finish(self._handle_math(text))
 
         # Fallback to LLM
-        return finish(ask_llm(text))
+        return finish(
+            ask_llm(
+                text,
+                memory_context=self.memory_store.to_prompt_context(),
+            )
+        )
 
     # ---------------------------------------------------------
     def _classify(self, text: str) -> str:
@@ -279,6 +326,7 @@ class AgentProcessor:
         return (
             "I can solve math problems, "
             "tell you the time and date, "
+            "remember your profile, preferences, and facts, "
             "and handle commands like go to sleep, "
             "reset conversation, repeat that, "
             "speak slower, and speak faster."
@@ -295,6 +343,89 @@ class AgentProcessor:
         }
 
         log("Conversation memory reset")
+
+    # ---------------------------------------------------------
+    def _handle_memory(self, text: str) -> str | None:
+        """
+        Save or summarize durable local memory from natural voice commands.
+        """
+
+        memory_text = text.strip().rstrip(".,!?;:")
+
+        if MEMORY_QUERY_TRIGGERS.search(memory_text):
+            return self._summarize_memory()
+
+        for pattern in NAME_PATTERNS:
+            match = pattern.search(memory_text)
+            if match:
+                name = self._clean_memory_value(match.group("value"))
+                self.memory_store.set_profile("name", name)
+                return f"I will remember your name is {name}."
+
+        for pattern in FAVORITE_PATTERNS:
+            match = pattern.search(memory_text)
+            if match:
+                key = f"favorite {match.group('key')}"
+                value = self._clean_memory_value(match.group("value"))
+                self.memory_store.set_preference(key, value)
+                return f"I will remember your {key} is {value}."
+
+        for pattern in PREFERENCE_PATTERNS:
+            match = pattern.search(memory_text)
+            if match:
+                preference = self._clean_memory_value(match.group("value"))
+                self.memory_store.set_preference("general", preference)
+                return f"I will remember that you prefer {preference}."
+
+        for pattern in FACT_PATTERNS:
+            match = pattern.search(memory_text)
+            if match:
+                fact = self._clean_memory_value(match.group("value"))
+                added = self.memory_store.add_fact(fact)
+
+                if added:
+                    return "I will remember that."
+
+                return "I already have that in memory."
+
+        return None
+
+    # ---------------------------------------------------------
+    def _summarize_memory(self) -> str:
+        profile = self.memory_store.get_profile()
+        preferences = self.memory_store.get_preferences()
+        facts = self.memory_store.get_facts()
+
+        if not profile and not preferences and not facts:
+            return "I do not have any saved memory yet."
+
+        parts = []
+
+        name = profile.get("name")
+        if name:
+            parts.append(f"your name is {name}")
+
+        if preferences:
+            preference_items = [
+                f"{key.replace('_', ' ')} is {value}"
+                for key, value in sorted(preferences.items())
+            ]
+            parts.append("your preferences: " + "; ".join(preference_items))
+
+        recent_facts = [
+            fact.get("text", "")
+            for fact in facts[-3:]
+            if fact.get("text")
+        ]
+        if recent_facts:
+            parts.append("recent facts: " + "; ".join(recent_facts))
+
+        return "I remember " + ". ".join(parts) + "."
+
+    # ---------------------------------------------------------
+    @staticmethod
+    def _clean_memory_value(value: str) -> str:
+        return value.strip().strip(".,!?;:")
 
     # ---------------------------------------------------------
     def _handle_math(self, text: str) -> str:

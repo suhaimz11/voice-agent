@@ -9,3 +9,4 @@ logs/
 Thumbs.db
 .DS_Store
 models/
+data/

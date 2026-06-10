@@ -20,6 +20,7 @@ The assistant waits for "Alexa", records the user's request, transcribes it with
 - Spoken math calculations
 - Voice commands for sleep, repeat, reset, and speech speed
 - Short-term conversation memory
+- Persistent local memory for user profile, preferences, and facts
 - File and console logging
 - Fully local execution
 - Modular architecture
@@ -48,6 +49,7 @@ voice_agent/
 |-- agent/
 |   |-- processor.py
 |   |-- math_handler.py
+|   |-- memory_store.py
 |   `-- llm_handler.py
 |-- audio/
 |   `-- recorder.py
@@ -187,9 +189,33 @@ reset conversation -> clear short-term chat and math memory
 repeat that        -> repeat the last assistant response
 speak slower       -> lower TTS speaking rate
 speak faster       -> raise TTS speaking rate
+my name is Sam     -> save your name locally
+my favorite color is green -> save a preference locally
+remember that I am learning Python -> save a conversation fact locally
+what do you remember -> summarize saved local memory
 shutdown           -> exit the app
 exit               -> exit the app
 ```
+
+---
+
+# Local Memory
+
+Persistent memory is stored as JSON at:
+
+```text
+data/memory.json
+```
+
+Override the path with:
+
+```text
+VOICE_AGENT_MEMORY_PATH=C:\path\to\memory.json
+```
+
+The memory file contains separate sections for `profile`, `preferences`, and
+conversation `facts`. It is loaded when the agent starts, saved after memory
+updates, and included as compact context for LLM responses.
 
 ---
 
@@ -301,7 +327,7 @@ Assistant: Ethereum was created by Vitalik Buterin.
 
 # Future Plans
 
-- Persistent local memory
+- Memory editing commands
 - Structured tool calling
 - Browser automation
 - Crypto wallet and hardware wallet integrations

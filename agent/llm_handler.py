@@ -31,6 +31,7 @@ SYSTEM_PROMPT = """
 You are a local AI voice assistant.
 
 You can remember information shared during the current conversation.
+You may also receive persistent local memory about the user.
 
 If the user tells you their name,
 remember it and use it naturally later.
@@ -207,7 +208,7 @@ def reset_conversation():
     log("Conversation history cleared.")
 
 
-def ask_llm(prompt: str) -> str:
+def ask_llm(prompt: str, memory_context: str | None = None) -> str:
     """
     Send user prompt to the active LLM backend
     and return the assistant response.
@@ -224,6 +225,17 @@ def ask_llm(prompt: str) -> str:
                 "content": SYSTEM_PROMPT,
             }
         ]
+
+        if memory_context:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Persistent local memory for this user:\n"
+                        f"{memory_context}"
+                    ),
+                }
+            )
 
         # Add previous conversation turns
         messages.extend(conversation_history)
