@@ -208,7 +208,11 @@ def reset_conversation():
     log("Conversation history cleared.")
 
 
-def ask_llm(prompt: str, memory_context: str | None = None) -> str:
+def ask_llm(
+    prompt: str,
+    memory_context: str | None = None,
+    system_context: str | None = None,
+) -> str:
     """
     Send user prompt to the active LLM backend
     and return the assistant response.
@@ -234,6 +238,14 @@ def ask_llm(prompt: str, memory_context: str | None = None) -> str:
                         "Persistent local memory for this user:\n"
                         f"{memory_context}"
                     ),
+                }
+            )
+
+        if system_context:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": system_context,
                 }
             )
 

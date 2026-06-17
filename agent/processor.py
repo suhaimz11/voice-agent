@@ -9,11 +9,13 @@ Responsible for:
 """
 
 import datetime
+import json
 import re
 
 from agent.math_handler import handle_math
 from agent.llm_handler import ask_llm, reset_conversation
 from agent.memory_store import MemoryStore
+from agent.tool_registry import ToolRegistry, create_default_tool_registry
 from utils.logger import log, log_timing, monotonic_seconds
 
 
@@ -122,6 +124,17 @@ FACT_PATTERNS = [
     ),
 ]
 
+TOOL_RESPONSE_SCHEMA = {
+    "tool_call": {
+        "name": "set_timer|get_time|get_weather",
+        "arguments": {
+            "seconds": "integer, required for set_timer",
+            "label": "string, optional for set_timer",
+            "location": "string, optional for get_weather",
+        },
+    }
+}
+
 
 def _strip_punctuation(text: str) -> str:
     """
@@ -136,7 +149,11 @@ def _strip_punctuation(text: str) -> str:
 
 class AgentProcessor:
 
-    def __init__(self, memory_store: MemoryStore | None = None):
+    def __init__(
+        self,
+        memory_store: MemoryStore | None = None,
+        tool_registry: ToolRegistry | None = None,
+    ):
 
         # Lightweight conversation memory
         self.memory = {
@@ -145,6 +162,7 @@ class AgentProcessor:
         }
 
         self.memory_store = memory_store or MemoryStore()
+        self.tool_registry = tool_registry or create_default_tool_registry()
 
         log("AgentProcessor initialized")
 
@@ -233,12 +251,7 @@ class AgentProcessor:
             return finish(self._handle_math(text))
 
         # Fallback to LLM
-        return finish(
-            ask_llm(
-                text,
-                memory_context=self.memory_store.to_prompt_context(),
-            )
-        )
+        return finish(self._handle_llm_or_tool(text))
 
     # ---------------------------------------------------------
     def _classify(self, text: str) -> str:
@@ -326,11 +339,69 @@ class AgentProcessor:
         return (
             "I can solve math problems, "
             "tell you the time and date, "
+            "set timers, fetch local weather, "
             "remember your profile, preferences, and facts, "
             "and handle commands like go to sleep, "
             "reset conversation, repeat that, "
             "speak slower, and speak faster."
         )
+
+    # ---------------------------------------------------------
+    def _handle_llm_or_tool(self, text: str) -> str:
+        reply = ask_llm(
+            text,
+            memory_context=self.memory_store.to_prompt_context(),
+            system_context=self._tool_prompt_context(),
+        )
+
+        tool_call = self._parse_tool_call(reply)
+
+        if not tool_call:
+            return reply
+
+        name = tool_call.get("name")
+        arguments = tool_call.get("arguments") or {}
+
+        if not isinstance(name, str) or not isinstance(arguments, dict):
+            log(f"Ignoring invalid tool call: {tool_call}", level="warning")
+            return "I could not understand that tool request."
+
+        log(f"Executing tool call: {name} args={arguments}", level="debug")
+
+        return self.tool_registry.execute(name, arguments)
+
+    # ---------------------------------------------------------
+    def _tool_prompt_context(self) -> str:
+        return (
+            "You can call local tools when they are needed for real actions.\n"
+            "If a tool is needed, respond with JSON only, no prose or markdown.\n"
+            "Use this exact shape:\n"
+            f"{json.dumps(TOOL_RESPONSE_SCHEMA)}\n"
+            "Available tools:\n"
+            f"{json.dumps(self.tool_registry.schema())}\n"
+            "For ordinary conversation, respond with plain text."
+        )
+
+    # ---------------------------------------------------------
+    @staticmethod
+    def _parse_tool_call(reply: str) -> dict | None:
+        raw = reply.strip()
+
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?", "", raw, flags=re.I).strip()
+            raw = re.sub(r"```$", "", raw).strip()
+
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+        tool_call = payload.get("tool_call")
+
+        if isinstance(tool_call, dict):
+            return tool_call
+
+        return None
 
     # ---------------------------------------------------------
     def reset_conversation(self):
