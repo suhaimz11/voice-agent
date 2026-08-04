@@ -17,7 +17,7 @@ from audio.devices import (
     resolve_output_device,
 )
 from audio.recorder import AudioRecorder
-from stt.whisper_stt import WhisperSTT
+from stt.moonshine_stt import MoonshineSTT
 from tts.tts_engine import TTSEngine
 from agent.processor import AgentProcessor
 from wakeword.detector import WakeWordDetector
@@ -38,9 +38,10 @@ RESPONSE_COOLDOWN = 1.0
 
 # Desktop defaults stay unchanged. These env vars are optional knobs for
 # later low-RAM profiles without changing normal local development.
-STT_MODEL_SIZE = os.environ.get("VOICE_AGENT_STT_MODEL", "small")
-STT_DEVICE = os.environ.get("VOICE_AGENT_STT_DEVICE", "cpu")
-STT_COMPUTE_TYPE = os.environ.get("VOICE_AGENT_STT_COMPUTE_TYPE", "int8")
+STT_LANGUAGE = os.environ.get("VOICE_AGENT_STT_LANGUAGE", "en")
+MOONSHINE_MODEL_PATH = os.environ.get("VOICE_AGENT_MOONSHINE_MODEL_PATH")
+_moonshine_model_arch = os.environ.get("VOICE_AGENT_MOONSHINE_MODEL_ARCH")
+MOONSHINE_MODEL_ARCH = int(_moonshine_model_arch) if _moonshine_model_arch else None
 WAKE_WORD = os.environ.get("VOICE_AGENT_WAKE_WORD", "alexa")
 WAKE_MODEL_PATH = os.environ.get("VOICE_AGENT_WAKE_MODEL")
 
@@ -99,10 +100,10 @@ def main():
         input_device=input_device,
     )
 
-    stt = WhisperSTT(
-        model_size=STT_MODEL_SIZE,
-        device=STT_DEVICE,
-        compute_type=STT_COMPUTE_TYPE,
+    stt = MoonshineSTT(
+        language=STT_LANGUAGE,
+        model_arch=MOONSHINE_MODEL_ARCH,
+        model_path=MOONSHINE_MODEL_PATH,
     )
 
     tts = TTSEngine(

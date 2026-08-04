@@ -19,9 +19,8 @@ onnxruntime>=1.18.0
 # Speech-to-text
 # -----------------------------------------------------------
 
-# Replaces openai-whisper + PyTorch — no GPU/CUDA required
-# Uses CTranslate2 backend, runs well on CPU and ARM (Raspberry Pi)
-faster-whisper>=1.0.0
+# Low-latency, on-device ASR optimized for voice applications
+moonshine-voice>=0.1.0
 
 # -----------------------------------------------------------
 # Text-to-speech

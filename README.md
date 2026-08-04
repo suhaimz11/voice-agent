@@ -2,7 +2,7 @@
 
 A local Python voice assistant with wake-word activation, speech-to-text, local agent processing, and offline text-to-speech.
 
-The assistant waits for "Alexa", records the user's request, transcribes it with Whisper, processes it through the local agent/LLM stack, speaks the response, and stays active for follow-up questions until there is 10 seconds of silence.
+The assistant waits for "Alexa", records the user's request, transcribes it with Moonshine Voice, processes it through the local agent/LLM stack, speaks the response, and stays active for follow-up questions until there is 10 seconds of silence.
 
 ---
 
@@ -14,7 +14,7 @@ The assistant waits for "Alexa", records the user's request, transcribes it with
 - 10-second inactivity sleep timeout
 - Siri-style recording timing with longer start and pause tolerance
 - Silero VAD-based speech detection
-- Speech-to-text using Whisper
+- On-device speech-to-text using Moonshine Voice
 - Local LLM integration (Ollama or llama-cpp-python)
 - Offline text-to-speech with pyttsx3 or Piper
 - Spoken math calculations
@@ -34,7 +34,7 @@ The assistant waits for "Alexa", records the user's request, transcribes it with
 - sounddevice
 - openWakeWord
 - ONNX Runtime
-- faster-whisper (recommended) or Whisper
+- Moonshine Voice
 - llama-cpp-python (recommended) or Ollama
 - pyttsx3 or Piper TTS
 - NumPy / SciPy
@@ -54,7 +54,7 @@ voice_agent/
 |-- audio/
 |   `-- recorder.py
 |-- stt/
-|   `-- whisper_stt.py
+|   `-- moonshine_stt.py
 |-- tts/
 |   `-- tts_engine.py
 |-- wakeword/
@@ -76,7 +76,7 @@ Sleep mode
 -> Listen for "Alexa"
 -> Active session
 -> Record speech until silence
--> Transcribe with Whisper
+-> Transcribe with Moonshine Voice
 -> Process with local agent / LLM
 -> Speak response
 -> Listen for follow-up speech
@@ -113,15 +113,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## 4. Install FFmpeg
-
-Whisper requires FFmpeg. Verify it is available:
-
-```bash
-ffmpeg -version
-```
-
-## 5. Install and Start LLM Backend
+## 4. Install and Start LLM Backend
 
 **Option A — Ollama (easier, more RAM):**
 
@@ -136,7 +128,7 @@ pip install llama-cpp-python
 # Download a GGUF model from HuggingFace, e.g. Qwen2.5-1.5B-Instruct Q4_K_M
 ```
 
-## 6. Run Voice Agent
+## 5. Run Voice Agent
 
 ```bash
 python main.py
@@ -165,10 +157,9 @@ Useful speed/config environment variables:
 VOICE_AGENT_WAKE_WORD=alexa
 VOICE_AGENT_INPUT_DEVICE=Microphone
 VOICE_AGENT_OUTPUT_DEVICE=Speakers
-VOICE_AGENT_STT_MODEL=small
-VOICE_AGENT_STT_BEAM_SIZE=1
-VOICE_AGENT_STT_BEST_OF=1
-VOICE_AGENT_STT_VAD_FILTER=false
+VOICE_AGENT_STT_LANGUAGE=en
+VOICE_AGENT_MOONSHINE_MODEL_ARCH=1
+VOICE_AGENT_MOONSHINE_MODEL_PATH=C:\path\to\moonshine-model
 OLLAMA_NUM_PREDICT=80
 OLLAMA_KEEP_ALIVE=10m
 ```
@@ -221,13 +212,13 @@ updates, and included as compact context for LLM responses.
 
 # Raspberry Pi / Low-RAM Deployment
 
-The default stack (PyTorch + Whisper + Ollama) is too heavy for devices with 4–8 GB RAM. Use the lightweight alternatives below.
+The default stack is designed for local execution. For devices with 4–8 GB RAM, use small Moonshine and GGUF models.
 
 ## Lightweight Stack
 
 | Component | Default | Lightweight Alternative |
 |-----------|---------|------------------------|
-| STT | openai-whisper + PyTorch | **faster-whisper** (no PyTorch needed) |
+| STT | Moonshine Voice | Use the Tiny or Base on-device model |
 | VAD | Silero via PyTorch | **Silero ONNX** (onnxruntime only) |
 | LLM | Ollama + Mistral 7B | **llama-cpp-python** + small GGUF model |
 | TTS | pyttsx3 | **piper-tts** (better voice, still offline) |
@@ -255,14 +246,13 @@ Estimated RAM with the lightweight stack: **~2–2.5 GB**, leaving comfortable h
 
 Download GGUF models from [HuggingFace](https://huggingface.co/models?search=gguf).
 
-## Lightweight STT Setup
+## Moonshine STT Setup
+
+Moonshine downloads and caches the appropriate model on first use. To prepare
+the English model before running offline:
 
 ```bash
-pip install faster-whisper
-
-# In whisper_stt.py — use tiny.en for English-only (fastest, ~150 MB)
-from faster_whisper import WhisperModel
-model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
+moonshine-voice download --stt --language en
 ```
 
 ## Lightweight LLM Setup
@@ -277,7 +267,7 @@ llm = Llama(model_path="models/qwen2.5-1.5b-instruct-q4_k_m.gguf", n_threads=4, 
 
 ## Raspberry Pi Performance Tips
 
-- Use `compute_type="int8"` in faster-whisper for ARM NEON speedup
+- Prefer a Tiny or Base Moonshine model on constrained hardware
 - Set `n_threads=4` in llama-cpp-python to use all Pi cores
 - Store model files on a USB 3 SSD rather than the SD card — load times are dramatically faster
 - Use a USB microphone instead of the 3.5mm jack for cleaner VAD signal
@@ -316,7 +306,7 @@ Assistant: Ethereum was created by Vitalik Buterin.
 
 # Notes
 
-- faster-whisper downloads model weights on first launch.
+- Moonshine Voice downloads model assets on first use unless they are pre-downloaded.
 - When using llama-cpp-python, download the GGUF model manually and set the path in config.
 - Wake word detection uses openWakeWord with ONNX Runtime.
 - Speech start/end detection uses Silero VAD through openWakeWord.
