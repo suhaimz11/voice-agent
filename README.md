@@ -10,7 +10,7 @@ The assistant waits for "Alexa", records the user's request, transcribes it with
 
 - Wake word activation with openWakeWord
 - Active conversation sessions after wake
-- Barge-in interruption while the assistant is speaking
+- Optional barge-in interruption while the assistant is speaking
 - 10-second inactivity sleep timeout
 - Siri-style recording timing with longer start and pause tolerance
 - Silero VAD-based speech detection
@@ -149,6 +149,15 @@ python main.py
 - Barge-in threshold: `1200` RMS
 - Barge-in grace period: `0.4` seconds
 
+Barge-in is disabled by default to prevent the assistant's own speaker output
+from interrupting its response. The default flow is: finish speaking, wait for
+the audio buffers to settle, and then listen for the next request. Enable
+barge-in only when using headphones or an echo-cancelled audio setup:
+
+```text
+VOICE_AGENT_BARGE_IN=true
+```
+
 These values are tuned in `wakeword/detector.py`, `audio/recorder.py`, and `main.py`.
 
 Useful speed/config environment variables:
@@ -157,6 +166,7 @@ Useful speed/config environment variables:
 VOICE_AGENT_WAKE_WORD=alexa
 VOICE_AGENT_INPUT_DEVICE=Microphone
 VOICE_AGENT_OUTPUT_DEVICE=Speakers
+VOICE_AGENT_BARGE_IN=false
 VOICE_AGENT_STT_LANGUAGE=en
 VOICE_AGENT_MOONSHINE_MODEL_ARCH=1
 VOICE_AGENT_MOONSHINE_MODEL_PATH=C:\path\to\moonshine-model

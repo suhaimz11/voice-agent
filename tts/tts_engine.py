@@ -4,7 +4,7 @@ Offline text-to-speech engine.
 Primary  : Piper TTS with Jenny voice (neural, natural female voice)
 Fallback : pyttsx3 (system voice, used if Piper is not installed)
 
-Uses sounddevice for all audio playback and barge-in monitoring.
+Uses sounddevice for audio playback and optional barge-in monitoring.
 No PyAudio required.
 
 Piper model setup:
@@ -50,6 +50,13 @@ PIPER_MODEL_PATH = os.environ.get(
 )
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class TTSEngine:
 
     def __init__(
@@ -57,6 +64,7 @@ class TTSEngine:
         rate: int = 175,
         volume: float = 1.0,
         voice_index: int = 0,
+        barge_in_enabled: bool | None = None,
         barge_in_threshold: float = 1200,
         barge_in_grace_seconds: float = 0.4,
         barge_in_duration: float = 0.15,
@@ -68,6 +76,11 @@ class TTSEngine:
         self.volume = volume
         self.voice_index = voice_index
 
+        self.barge_in_enabled = (
+            _env_bool("VOICE_AGENT_BARGE_IN", False)
+            if barge_in_enabled is None
+            else barge_in_enabled
+        )
         self.barge_in_threshold = barge_in_threshold
         self.barge_in_grace_seconds = barge_in_grace_seconds
         self.barge_in_duration = barge_in_duration
@@ -116,7 +129,8 @@ class TTSEngine:
             (
                 "TTSEngine initialized "
                 f"(input_device={self.input_device}, "
-                f"output_device={self.output_device})"
+                f"output_device={self.output_device}, "
+                f"barge_in_enabled={self.barge_in_enabled})"
             )
         )
 
@@ -185,7 +199,7 @@ class TTSEngine:
 
         try:
 
-            if interruptible:
+            if interruptible and self.barge_in_enabled:
                 return self._speak_interruptible(text)
 
             return self._speak_blocking(text)
