@@ -23,16 +23,7 @@ onnxruntime>=1.18.0
 moonshine-voice>=0.1.0
 
 # -----------------------------------------------------------
-# Text-to-speech
-# -----------------------------------------------------------
-
-# Primary: Piper TTS — neural offline voice (recommended)
-# Download Jenny model from: https://github.com/rhasspy/piper/releases
-# File: en_US-jenny_dioco-medium.onnx + .onnx.json -> place in models/
-piper-tts>=1.2.0
-
-# Fallback: pyttsx3 — used automatically if Piper model is not found
-pyttsx3>=2.90
+# Text-to-speech is also provided by moonshine-voice above.
 
 # -----------------------------------------------------------
 # LLM backend

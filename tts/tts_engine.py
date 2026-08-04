@@ -1,53 +1,15 @@
-"""
-Offline text-to-speech engine.
+"""Moonshine Voice text-to-speech adapter."""
 
-Primary  : Piper TTS with Jenny voice (neural, natural female voice)
-Fallback : pyttsx3 (system voice, used if Piper is not installed)
+from __future__ import annotations
 
-Uses sounddevice for audio playback and optional barge-in monitoring.
-No PyAudio required.
-
-Piper model setup:
-    1. pip install piper-tts
-    2. Download model files into models/:
-       https://github.com/rhasspy/piper/releases
-       Recommended: en_US-jenny_dioco-medium.onnx
-                    en_US-jenny_dioco-medium.onnx.json
-    3. Set PIPER_MODEL_PATH env var if using a different path/voice.
-"""
-
-import io
 import math
 import os
-import threading
 import time
-import wave
 
 import numpy as np
 import sounddevice as sd
 
-from utils.logger import (
-    elapsed_seconds,
-    format_duration,
-    log,
-    log_timing,
-    monotonic_seconds,
-)
-
-
-# --- Optional Piper import ---
-try:
-    from piper.voice import PiperVoice
-    _PIPER_AVAILABLE = True
-except ImportError:
-    _PIPER_AVAILABLE = False
-
-
-# Default model path — override with PIPER_MODEL_PATH env var
-PIPER_MODEL_PATH = os.environ.get(
-    "PIPER_MODEL_PATH",
-    "models/en_GB-jenny_dioco-medium.onnx",
-)
+from utils.logger import elapsed_seconds, log, log_timing, monotonic_seconds
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -58,6 +20,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 class TTSEngine:
+    """Speak responses using Moonshine Voice only."""
 
     def __init__(
         self,
@@ -71,11 +34,24 @@ class TTSEngine:
         input_device: int | None = None,
         output_device: int | None = None,
     ):
+        del voice_index  # Kept in the signature for compatibility.
+
+        try:
+            from moonshine_voice import TextToSpeech
+        except ImportError as exc:
+            raise RuntimeError(
+                "Moonshine Voice is not installed. Run: pip install moonshine-voice"
+            ) from exc
 
         self.rate = rate
         self.volume = volume
-        self.voice_index = voice_index
-
+        self.language = os.environ.get("VOICE_AGENT_TTS_LANGUAGE", "en_us")
+        self.voice = os.environ.get(
+            "VOICE_AGENT_TTS_VOICE",
+            "kokoro_af_heart",
+        ) or None
+        self.input_device = input_device
+        self.output_device = output_device
         self.barge_in_enabled = (
             _env_bool("VOICE_AGENT_BARGE_IN", False)
             if barge_in_enabled is None
@@ -86,73 +62,34 @@ class TTSEngine:
         self.barge_in_duration = barge_in_duration
         self.barge_in_sample_rate = 16000
         self.barge_in_chunk_size = 1024
-        self.input_device = input_device
-        self.output_device = output_device
 
-        # Piper speed control — mapped from pyttsx3-style rate
-        self._length_scale = self._rate_to_length_scale(rate)
-
-        # Decide which backend to use
-        self._use_piper = (
-            _PIPER_AVAILABLE
-            and os.path.exists(PIPER_MODEL_PATH)
+        started_at = monotonic_seconds()
+        self._tts = TextToSpeech(
+            self.language,
+            voice=self.voice,
+            output_device=self.output_device,
+            volume=self.volume,
+            download=True,
         )
-
-        if self._use_piper:
-
-            log(f"Loading Piper TTS model: {PIPER_MODEL_PATH}")
-
-            self._piper_voice = PiperVoice.load(PIPER_MODEL_PATH)
-
-            log("Piper TTS loaded ✓ (Jenny — en_US-jenny_dioco-medium)")
-
-        else:
-
-            if _PIPER_AVAILABLE and not os.path.exists(PIPER_MODEL_PATH):
-                log(
-                    f"Piper model not found at '{PIPER_MODEL_PATH}'. "
-                    "Falling back to pyttsx3. "
-                    "Download: https://github.com/rhasspy/piper/releases",
-                    level="warning",
-                )
-
-            elif not _PIPER_AVAILABLE:
-                log(
-                    "piper-tts not installed — using pyttsx3 fallback.",
-                    level="warning",
-                )
-
-            import pyttsx3 as _pyttsx3
-            self._pyttsx3 = _pyttsx3
-
+        log_timing(
+            "Moonshine TTS load",
+            started_at,
+            details=(
+                f"language={self.language}, voice={self.voice or 'default'}, "
+                f"output_device={self.output_device}"
+            ),
+        )
         log(
-            (
-                "TTSEngine initialized "
-                f"(input_device={self.input_device}, "
-                f"output_device={self.output_device}, "
-                f"barge_in_enabled={self.barge_in_enabled})"
-            )
+            "TTSEngine initialized "
+            f"(backend=moonshine, input_device={self.input_device}, "
+            f"output_device={self.output_device}, "
+            f"barge_in_enabled={self.barge_in_enabled})"
         )
 
-    # ---------------------------------------------------------
-    # Helpers
-    # ---------------------------------------------------------
-
-    @staticmethod
-    def _rate_to_length_scale(rate: int) -> float:
-        """
-        Convert pyttsx3-style rate (120–230) to Piper length_scale.
-
-        length_scale 1.0 = normal speed
-        length_scale > 1 = slower
-        length_scale < 1 = faster
-
-        rate 175 (default) -> 1.00
-        rate 120 (slow)    -> 1.46
-        rate 230 (fast)    -> 0.76
-        """
-
-        return round(175 / max(rate, 1), 2)
+    @property
+    def speed(self) -> float:
+        """Map the existing 120-230 speech-rate range to Moonshine speed."""
+        return round(self.rate / 175.0, 2)
 
     def adjust_rate(
         self,
@@ -160,264 +97,58 @@ class TTSEngine:
         min_rate: int = 120,
         max_rate: int = 230,
     ) -> int:
-        """
-        Adjust speech rate and return the new value.
-        """
-
-        self.rate = max(
-            min_rate,
-            min(max_rate, self.rate + delta)
-        )
-
-        self._length_scale = self._rate_to_length_scale(self.rate)
-
-        log(
-            f"TTS rate set to {self.rate} "
-            f"(length_scale={self._length_scale})"
-        )
-
+        self.rate = max(min_rate, min(max_rate, self.rate + delta))
+        log(f"Moonshine TTS rate set to {self.rate} (speed={self.speed})")
         return self.rate
 
-    # ---------------------------------------------------------
-    # Public
-    # ---------------------------------------------------------
-
-    def speak(
-        self,
-        text: str,
-        interruptible: bool = False,
-    ) -> bool:
-        """
-        Convert text into speech output.
-
-        Returns True when speech finishes normally,
-        False when interrupted by barge-in.
-        """
-
+    def speak(self, text: str, interruptible: bool = False) -> bool:
+        """Speak text and return False only when genuine barge-in stops it."""
         if not text:
             return True
 
         try:
-
             if interruptible and self.barge_in_enabled:
                 return self._speak_interruptible(text)
-
             return self._speak_blocking(text)
-
-        except Exception as e:
-
-            log(
-                f"TTS error: {e}",
-                level="warning",
-                exc_info=True,
-            )
-
+        except Exception as exc:
+            log(f"Moonshine TTS error: {exc}", level="error", exc_info=True)
             log(f"TTS fallback text: {text}")
-
             return True
 
     def list_voices(self):
-        """
-        Print available voices.
-        Piper: shows current model.
-        pyttsx3: lists all system voices.
-        """
+        from moonshine_voice import list_tts_voices
 
-        if self._use_piper:
-            log(
-                "Piper TTS active — "
-                f"model: {PIPER_MODEL_PATH}"
-            )
-            return
-
-        engine = self._pyttsx3.init()
-
-        voices = engine.getProperty("voices")
-
-        for index, voice in enumerate(voices):
-            log(f"[{index}] {voice.name} — {voice.id}")
-
-        engine.stop()
-
-    # ---------------------------------------------------------
-    # Piper synthesis helper
-    # ---------------------------------------------------------
-
-    def _synthesize(self, text: str):
-        """
-        Synthesize text with Piper entirely in memory.
-        Returns (audio_array, sample_rate) — no temp files.
-        """
-
-        started_at = monotonic_seconds()
-
-        buf = io.BytesIO()
-
-        with wave.open(buf, "wb") as wf:
-            self._piper_voice.synthesize_wav(text, wf)
-
-        buf.seek(0)
-
-        with wave.open(buf, "rb") as wf:
-            sample_rate = wf.getframerate()
-            raw = wf.readframes(wf.getnframes())
-
-        audio = (
-            np.frombuffer(raw, dtype=np.int16)
-            .astype(np.float32) / 32768.0
-        )
-
-        audio_duration = len(audio) / sample_rate if sample_rate else 0.0
-
-        log_timing(
-            "TTS generation",
-            started_at,
-            details=(
-                f"backend=piper, text_chars={len(text)}, "
-                f"audio={format_duration(audio_duration)}, "
-                f"samples={len(audio)}, sample_rate={sample_rate}, "
-                f"length_scale={self._length_scale}"
-            ),
-        )
-
-        return audio, sample_rate
-
-    # ---------------------------------------------------------
-    # Blocking speech
-    # ---------------------------------------------------------
+        voices = list_tts_voices(self.language)
+        log(f"Moonshine TTS voices for {self.language}: {voices}")
+        return voices
 
     def _speak_blocking(self, text: str) -> bool:
-
         started_at = monotonic_seconds()
-
         log(f"TTS started: {text}")
-
-        if self._use_piper:
-
-            audio, sample_rate = self._synthesize(text)
-
-            playback_started_at = monotonic_seconds()
-
-            sd.play(
-                audio,
-                sample_rate,
-                device=self.output_device,
-            )
-            sd.wait()
-
-            audio_duration = len(audio) / sample_rate if sample_rate else 0.0
-
-            log_timing(
-                "TTS playback",
-                playback_started_at,
-                details=(
-                    "backend=piper, mode=blocking, result=completed, "
-                    f"audio={format_duration(audio_duration)}, "
-                    f"output_device={self.output_device}"
-                ),
-            )
-
-        else:
-
-            setup_started_at = monotonic_seconds()
-
-            engine = self._configure_pyttsx3()
-
-            log_timing(
-                "TTS engine setup",
-                setup_started_at,
-                details="backend=pyttsx3, mode=blocking",
-            )
-
-            generation_started_at = monotonic_seconds()
-
-            engine.say(text)
-
-            log_timing(
-                "TTS generation",
-                generation_started_at,
-                details=(
-                    "backend=pyttsx3, mode=queued, "
-                    f"text_chars={len(text)}"
-                ),
-            )
-
-            playback_started_at = monotonic_seconds()
-
-            engine.runAndWait()
-
-            log_timing(
-                "TTS playback",
-                playback_started_at,
-                details=(
-                    "backend=pyttsx3, mode=blocking, result=completed"
-                ),
-            )
-
-            engine.stop()
-
+        self._tts.say(text, speed=self.speed)
+        self._tts.wait()
         log_timing(
             "TTS total",
             started_at,
             details=(
-                f"mode=blocking, backend="
-                f"{'piper' if self._use_piper else 'pyttsx3'}, "
-                f"text_chars={len(text)}"
+                f"backend=moonshine, mode=blocking, text_chars={len(text)}, "
+                f"speed={self.speed}"
             ),
         )
-
         return True
-
-    # ---------------------------------------------------------
-    # Interruptible speech
-    # ---------------------------------------------------------
 
     def _speak_interruptible(self, text: str) -> bool:
-
         started_at = monotonic_seconds()
+        chunk_seconds = self.barge_in_chunk_size / self.barge_in_sample_rate
+        chunks_needed = max(1, math.ceil(self.barge_in_duration / chunk_seconds))
+        voice_chunks = 0
+        max_rms = 0.0
+        interrupted = False
 
         log(f"TTS started (interruptible): {text}")
-
-        if self._use_piper:
-            return self._piper_interruptible(text, started_at)
-
-        return self._pyttsx3_interruptible(text, started_at)
-
-    # ---------------------------------------------------------
-
-    def _piper_interruptible(
-        self,
-        text: str,
-        started_at: float,
-    ) -> bool:
-
-        chunk_seconds = (
-            self.barge_in_chunk_size / self.barge_in_sample_rate
-        )
-
-        chunks_needed = max(
-            1,
-            math.ceil(self.barge_in_duration / chunk_seconds)
-        )
-
-        voice_chunks = 0
-        interrupted = False
-        max_rms = 0.0
-
-        audio, sample_rate = self._synthesize(text)
-
-        audio_duration = len(audio) / sample_rate if sample_rate else 0.0
-
-        playback_started_at = monotonic_seconds()
+        self._tts.say(text, speed=self.speed)
 
         try:
-
-            sd.play(
-                audio,
-                sample_rate,
-                device=self.output_device,
-            )
-
             with sd.RawInputStream(
                 samplerate=self.barge_in_sample_rate,
                 blocksize=self.barge_in_chunk_size,
@@ -425,306 +156,40 @@ class TTSEngine:
                 dtype="int16",
                 device=self.input_device,
             ) as mic:
+                while self._tts.is_talking():
+                    if elapsed_seconds(started_at) < self.barge_in_grace_seconds:
+                        time.sleep(0.02)
+                        continue
 
-                while True:
+                    data, _ = mic.read(self.barge_in_chunk_size)
+                    samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+                    rms = float(np.sqrt(np.mean(samples ** 2)))
+                    max_rms = max(max_rms, rms)
+                    voice_chunks = (
+                        voice_chunks + 1
+                        if rms >= self.barge_in_threshold
+                        else max(0, voice_chunks - 1)
+                    )
 
-                    # Check if playback has finished
-                    try:
-                        if not sd.get_stream().active:
-                            break
-                    except Exception:
+                    if voice_chunks >= chunks_needed:
+                        self._tts.stop()
+                        interrupted = True
+                        log(
+                            "Moonshine TTS interrupted by barge-in "
+                            f"(rms={rms:.0f}, threshold={self.barge_in_threshold:.0f})"
+                        )
                         break
-
-                    if (
-                        elapsed_seconds(started_at)
-                        >= self.barge_in_grace_seconds
-                    ):
-
-                        data, _ = mic.read(self.barge_in_chunk_size)
-
-                        arr = np.frombuffer(
-                            data,
-                            dtype=np.int16,
-                        ).astype(np.float32)
-
-                        rms = float(np.sqrt(np.mean(arr ** 2)))
-
-                        max_rms = max(max_rms, rms)
-
-                        if rms >= self.barge_in_threshold:
-                            voice_chunks += 1
-                        else:
-                            voice_chunks = max(0, voice_chunks - 1)
-
-                        if voice_chunks >= chunks_needed:
-
-                            sd.stop()
-
-                            interrupted = True
-
-                            log(
-                                (
-                                    "TTS interrupted by barge-in "
-                                    f"(rms={rms:.0f}, "
-                                    f"threshold={self.barge_in_threshold:.0f})"
-                                )
-                            )
-
-                            break
-
-                    else:
-                        time.sleep(0.02)
-
         finally:
-
-            sd.stop()
-
-        if interrupted:
-            log_timing(
-                "TTS playback",
-                playback_started_at,
-                details=(
-                    "backend=piper, mode=interruptible, result=interrupted, "
-                    f"audio={format_duration(audio_duration)}, "
-                    f"max_barge_in_rms={max_rms:.0f}, "
-                    f"threshold={self.barge_in_threshold:.0f}"
-                ),
-            )
-
-            log_timing(
-                "TTS total",
-                started_at,
-                details=(
-                    "backend=piper, mode=interruptible, result=interrupted, "
-                    f"text_chars={len(text)}"
-                ),
-            )
-
-            return False
-
-        log_timing(
-            "TTS playback",
-            playback_started_at,
-            details=(
-                "backend=piper, mode=interruptible, result=completed, "
-                f"audio={format_duration(audio_duration)}, "
-                f"max_barge_in_rms={max_rms:.0f}"
-            ),
-        )
+            if not interrupted:
+                self._tts.wait()
 
         log_timing(
             "TTS total",
             started_at,
             details=(
-                "backend=piper, mode=interruptible, result=completed, "
-                f"text_chars={len(text)}"
+                "backend=moonshine, mode=interruptible, "
+                f"result={'interrupted' if interrupted else 'completed'}, "
+                f"text_chars={len(text)}, max_barge_in_rms={max_rms:.0f}"
             ),
         )
-
-        return True
-
-    # ---------------------------------------------------------
-
-    def _pyttsx3_interruptible(
-        self,
-        text: str,
-        started_at: float,
-    ) -> bool:
-
-        chunk_seconds = (
-            self.barge_in_chunk_size / self.barge_in_sample_rate
-        )
-
-        chunks_needed = max(
-            1,
-            math.ceil(self.barge_in_duration / chunk_seconds)
-        )
-
-        voice_chunks = 0
-        interrupted = False
-        max_rms = 0.0
-
-        speech_done = threading.Event()
-        speech_ready = threading.Event()
-        speech_error = []
-        engine_holder = {"engine": None}
-
-        def run_speech():
-            try:
-                setup_started_at = monotonic_seconds()
-
-                engine = self._configure_pyttsx3()
-
-                engine_holder["engine"] = engine
-
-                log_timing(
-                    "TTS engine setup",
-                    setup_started_at,
-                    details="backend=pyttsx3, mode=interruptible",
-                )
-
-                speech_ready.set()
-
-                generation_started_at = monotonic_seconds()
-
-                engine.say(text)
-
-                log_timing(
-                    "TTS generation",
-                    generation_started_at,
-                    details=(
-                        "backend=pyttsx3, mode=queued, "
-                        f"text_chars={len(text)}"
-                    ),
-                )
-
-                engine.runAndWait()
-            except Exception as e:
-                speech_error.append(e)
-            finally:
-                speech_ready.set()
-                speech_done.set()
-
-        speech_thread = threading.Thread(
-            target=run_speech,
-            daemon=True,
-        )
-
-        speech_thread.start()
-        speech_ready.wait(timeout=2.0)
-
-        playback_started_at = monotonic_seconds()
-
-        try:
-
-            with sd.RawInputStream(
-                samplerate=self.barge_in_sample_rate,
-                blocksize=self.barge_in_chunk_size,
-                channels=1,
-                dtype="int16",
-                device=self.input_device,
-            ) as mic:
-
-                while not speech_done.is_set():
-
-                    if (
-                        elapsed_seconds(started_at)
-                        >= self.barge_in_grace_seconds
-                    ):
-
-                        data, _ = mic.read(self.barge_in_chunk_size)
-
-                        arr = np.frombuffer(
-                            data,
-                            dtype=np.int16,
-                        ).astype(np.float32)
-
-                        rms = float(np.sqrt(np.mean(arr ** 2)))
-
-                        max_rms = max(max_rms, rms)
-
-                        if rms >= self.barge_in_threshold:
-                            voice_chunks += 1
-                        else:
-                            voice_chunks = max(0, voice_chunks - 1)
-
-                        if voice_chunks >= chunks_needed:
-
-                            interrupted = True
-
-                            engine = engine_holder["engine"]
-
-                            if engine is not None:
-                                engine.stop()
-
-                            speech_done.wait(timeout=1.0)
-
-                            log(
-                                (
-                                    "TTS interrupted by barge-in "
-                                    f"(rms={rms:.0f}, "
-                                    f"threshold={self.barge_in_threshold:.0f})"
-                                )
-                            )
-
-                            break
-
-                    else:
-                        time.sleep(0.02)
-
-        finally:
-
-            engine = engine_holder["engine"]
-
-            if engine is not None:
-                engine.stop()
-
-            speech_thread.join(timeout=1.0)
-
-        if speech_error:
-            raise speech_error[0]
-
-        if interrupted:
-            log_timing(
-                "TTS playback",
-                playback_started_at,
-                details=(
-                    "backend=pyttsx3, mode=interruptible, "
-                    "result=interrupted, "
-                    f"max_barge_in_rms={max_rms:.0f}, "
-                    f"threshold={self.barge_in_threshold:.0f}"
-                ),
-            )
-
-            log_timing(
-                "TTS total",
-                started_at,
-                details=(
-                    "backend=pyttsx3, mode=interruptible, "
-                    f"result=interrupted, text_chars={len(text)}"
-                ),
-            )
-
-            return False
-
-        log_timing(
-            "TTS playback",
-            playback_started_at,
-            details=(
-                "backend=pyttsx3, mode=interruptible, result=completed, "
-                f"max_barge_in_rms={max_rms:.0f}, "
-                f"threshold={self.barge_in_threshold:.0f}"
-            ),
-        )
-
-        log_timing(
-            "TTS total",
-            started_at,
-            details=(
-                "backend=pyttsx3, mode=interruptible, result=completed, "
-                f"text_chars={len(text)}"
-            ),
-        )
-
-        return True
-
-    # ---------------------------------------------------------
-    # pyttsx3 engine config (fallback only)
-    # ---------------------------------------------------------
-
-    def _configure_pyttsx3(self):
-
-        engine = self._pyttsx3.init()
-
-        engine.setProperty("rate", self.rate)
-        engine.setProperty("volume", self.volume)
-
-        voices = engine.getProperty("voices")
-
-        if voices and self.voice_index < len(voices):
-            engine.setProperty(
-                "voice",
-                voices[self.voice_index].id,
-            )
-
-        return engine
+        return not interrupted

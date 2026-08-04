@@ -16,7 +16,7 @@ The assistant waits for "Alexa", records the user's request, transcribes it with
 - Silero VAD-based speech detection
 - On-device speech-to-text using Moonshine Voice
 - Local LLM integration (Ollama or llama-cpp-python)
-- Offline text-to-speech with pyttsx3 or Piper
+- Offline text-to-speech through Moonshine Voice
 - Spoken math calculations
 - Voice commands for sleep, repeat, reset, and speech speed
 - Short-term conversation memory
@@ -36,7 +36,7 @@ The assistant waits for "Alexa", records the user's request, transcribes it with
 - ONNX Runtime
 - Moonshine Voice
 - llama-cpp-python (recommended) or Ollama
-- pyttsx3 or Piper TTS
+- Moonshine Voice TTS
 - NumPy / SciPy
 - FFmpeg
 
@@ -168,6 +168,8 @@ VOICE_AGENT_INPUT_DEVICE=Microphone
 VOICE_AGENT_OUTPUT_DEVICE=Speakers
 VOICE_AGENT_BARGE_IN=false
 VOICE_AGENT_STT_LANGUAGE=en
+VOICE_AGENT_TTS_LANGUAGE=en_us
+VOICE_AGENT_TTS_VOICE=kokoro_af_heart
 VOICE_AGENT_MOONSHINE_MODEL_ARCH=1
 VOICE_AGENT_MOONSHINE_MODEL_PATH=C:\path\to\moonshine-model
 OLLAMA_NUM_PREDICT=80
@@ -231,7 +233,7 @@ The default stack is designed for local execution. For devices with 4–8 GB RAM
 | STT | Moonshine Voice | Use the Tiny or Base on-device model |
 | VAD | Silero via PyTorch | **Silero ONNX** (onnxruntime only) |
 | LLM | Ollama + Mistral 7B | **llama-cpp-python** + small GGUF model |
-| TTS | pyttsx3 | **piper-tts** (better voice, still offline) |
+| TTS | Moonshine Voice | Use a small downloadable Moonshine voice |
 | Audio | PyAudio + sounddevice | sounddevice only (drop PyAudio) |
 
 Estimated RAM with the lightweight stack: **~2–2.5 GB**, leaving comfortable headroom on a 4 GB Pi.
