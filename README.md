@@ -118,7 +118,7 @@ pip install -r requirements.txt
 **Option A — Ollama (easier, more RAM):**
 
 ```bash
-ollama run mistral
+ollama run qwen3:1.7b
 ```
 
 **Option B — llama-cpp-python (recommended for low-RAM devices):**
@@ -172,7 +172,9 @@ VOICE_AGENT_TTS_LANGUAGE=en_us
 VOICE_AGENT_TTS_VOICE=kokoro_af_heart
 VOICE_AGENT_MOONSHINE_MODEL_ARCH=1
 VOICE_AGENT_MOONSHINE_MODEL_PATH=C:\path\to\moonshine-model
-OLLAMA_NUM_PREDICT=80
+OLLAMA_MODEL=qwen3:1.7b
+OLLAMA_NUM_CTX=1024
+OLLAMA_NUM_PREDICT=60
 OLLAMA_KEEP_ALIVE=10m
 ```
 
@@ -232,7 +234,7 @@ The default stack is designed for local execution. For devices with 4–8 GB RAM
 |-----------|---------|------------------------|
 | STT | Moonshine Voice | Use the Tiny or Base on-device model |
 | VAD | Silero via PyTorch | **Silero ONNX** (onnxruntime only) |
-| LLM | Ollama + Mistral 7B | **llama-cpp-python** + small GGUF model |
+| LLM | Ollama + Qwen3 1.7B | **llama-cpp-python** + small GGUF model |
 | TTS | Moonshine Voice | Use a small downloadable Moonshine voice |
 | Audio | PyAudio + sounddevice | sounddevice only (drop PyAudio) |
 

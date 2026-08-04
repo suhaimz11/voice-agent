@@ -3,7 +3,7 @@ Local LLM handler.
 
 Supports two backends, selected via LLM_BACKEND env var:
 
-    LLM_BACKEND=ollama      (default) uses Ollama + Mistral
+    LLM_BACKEND=ollama      (default) uses Ollama + Qwen3 1.7B
     LLM_BACKEND=llamacpp    uses llama-cpp-python with a local GGUF model
 
 Handles:
@@ -37,11 +37,11 @@ If the user tells you their name,
 remember it and use it naturally later.
 
 Keep responses:
-- short
+- very short
 - conversational
 - natural for speech
-- one or two sentences unless the user asks for detail
-- under 40 words whenever possible
+- one sentence unless the user asks for detail
+- under 25 words whenever possible
 
 Avoid long paragraphs.
 """
@@ -59,15 +59,17 @@ class OllamaBackend:
         from ollama import chat as ollama_chat
 
         self._chat = ollama_chat
-        self.model = os.environ.get("OLLAMA_MODEL", "mistral")
-        self.num_predict = int(os.environ.get("OLLAMA_NUM_PREDICT", "80"))
+        self.model = os.environ.get("OLLAMA_MODEL", "qwen3:1.7b")
+        self.num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", "1024"))
+        self.num_predict = int(os.environ.get("OLLAMA_NUM_PREDICT", "60"))
         self.temperature = float(os.environ.get("OLLAMA_TEMPERATURE", "0.6"))
         self.keep_alive = os.environ.get("OLLAMA_KEEP_ALIVE", "10m")
 
         log(
             (
                 f"LLM backend: Ollama (model={self.model}, "
-                f"num_predict={self.num_predict}, keep_alive={self.keep_alive})"
+                f"num_ctx={self.num_ctx}, num_predict={self.num_predict}, "
+                f"keep_alive={self.keep_alive})"
             )
         )
 
@@ -80,6 +82,7 @@ class OllamaBackend:
             keep_alive=self.keep_alive,
             options={
                 "num_predict": self.num_predict,
+                "num_ctx": self.num_ctx,
                 "temperature": self.temperature,
             },
         )

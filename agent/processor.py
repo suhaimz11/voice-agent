@@ -42,6 +42,12 @@ GREETING_TRIGGERS = re.compile(
     re.I,
 )
 
+WELLBEING_TRIGGERS = re.compile(
+    r"^(how are you|how are you doing|how is it going|hows it going|"
+    r"how do you feel|are you okay|are you alright)\s*$",
+    re.I,
+)
+
 TIME_TRIGGERS = re.compile(
     r"\b("
     r"what time|current time|"
@@ -236,6 +242,9 @@ class AgentProcessor:
         if intent == "GREETING":
             return finish(self._handle_greeting())
 
+        if intent == "WELLBEING":
+            return finish(self._handle_wellbeing())
+
         if intent == "TIME":
             return finish(self._handle_time())
 
@@ -294,6 +303,9 @@ class AgentProcessor:
         if HELP_TRIGGERS.search(text):
             return "HELP"
 
+        if WELLBEING_TRIGGERS.match(text):
+            return "WELLBEING"
+
         if GREETING_TRIGGERS.match(text):
             return "GREETING"
 
@@ -321,6 +333,10 @@ class AgentProcessor:
             return "Good afternoon. What can I do for you?"
 
         return "Good evening. How can I help?"
+
+    # ---------------------------------------------------------
+    def _handle_wellbeing(self) -> str:
+        return "I'm doing well, thanks. How can I help?"
 
     # ---------------------------------------------------------
     def _handle_time(self) -> str:

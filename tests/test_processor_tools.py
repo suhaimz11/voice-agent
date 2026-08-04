@@ -54,6 +54,15 @@ class ProcessorToolTests(unittest.TestCase):
         self.assertEqual(response, "Sure thing.")
         self.assertIsNone(self.executed)
 
+    def test_wellbeing_question_is_answered_locally(self):
+        processor = self._processor()
+
+        with patch("agent.processor.ask_llm") as ask_llm:
+            response = processor.process("How are you?")
+
+        self.assertEqual(response, "I'm doing well, thanks. How can I help?")
+        ask_llm.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
