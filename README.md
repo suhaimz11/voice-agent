@@ -2,7 +2,7 @@
 
 A local Python voice assistant with wake-word activation, speech-to-text, local agent processing, and offline text-to-speech.
 
-The assistant waits for "Alexa", records the user's request, transcribes it with Moonshine Voice, processes it through the local agent/LLM stack, speaks the response, and stays active for follow-up questions until there is 10 seconds of silence.
+The assistant waits for "Alexa", streams the user's speech into Moonshine Voice, processes the final transcript through local commands or Qwen, speaks the complete response, and stays active for follow-up questions until there is 10 seconds of silence.
 
 ---
 
@@ -15,6 +15,7 @@ The assistant waits for "Alexa", records the user's request, transcribes it with
 - Siri-style recording timing with longer start and pause tolerance
 - Silero VAD-based speech detection
 - On-device speech-to-text using Moonshine Voice
+- Incremental streaming transcription with a rolling pre-speech buffer
 - Local LLM integration (Ollama or llama-cpp-python)
 - Offline text-to-speech through Moonshine Voice
 - Spoken math calculations
@@ -62,6 +63,7 @@ voice_agent/
 |-- utils/
 |   `-- logger.py
 |-- main.py
+|-- config.py
 |-- requirements.txt
 |-- README.md
 `-- .gitignore
@@ -75,8 +77,8 @@ voice_agent/
 Sleep mode
 -> Listen for "Alexa"
 -> Active session
--> Record speech until silence
--> Transcribe with Moonshine Voice
+-> Stream microphone chunks into Moonshine Voice
+-> Finalize after a short speech endpoint
 -> Process with local agent / LLM
 -> Speak response
 -> Listen for follow-up speech
@@ -142,10 +144,12 @@ python main.py
 - Wake detector model: built-in `alexa`
 - Wake threshold: `0.5`
 - Recorder VAD threshold: `0.35`
-- Start-speaking timeout: `4.0` seconds
-- End-of-speech silence: `2.5` seconds
+- Start-speaking timeout: `5.0` seconds
+- End-of-speech silence: `0.9` seconds on desktop, `0.8` on Pi 4
+- Rolling pre-speech buffer: `0.3` seconds
+- Minimum accepted speech: `0.3` seconds
 - Active-session sleep timeout: `10` seconds
-- Max single recording: `45` seconds
+- Max single recording: `30` seconds on desktop, `15` on Pi 4
 - Barge-in threshold: `1200` RMS
 - Barge-in grace period: `0.4` seconds
 
@@ -164,6 +168,7 @@ Useful speed/config environment variables:
 
 ```text
 VOICE_AGENT_WAKE_WORD=alexa
+VOICE_AGENT_PROFILE=desktop
 VOICE_AGENT_INPUT_DEVICE=Microphone
 VOICE_AGENT_OUTPUT_DEVICE=Speakers
 VOICE_AGENT_BARGE_IN=false
@@ -228,13 +233,26 @@ updates, and included as compact context for LLM responses.
 
 The default stack is designed for local execution. For devices with 4–8 GB RAM, use small Moonshine and GGUF models.
 
+Select the built-in Pi 4 profile before launching:
+
+```bash
+export VOICE_AGENT_PROFILE=pi4
+ollama pull qwen3:0.6b
+moonshine-voice download --stt --language en --model-arch 2
+python main.py
+```
+
+The `pi4` profile selects Moonshine Tiny Streaming (architecture 2), Qwen3
+0.6B, a 1024-token context, persistent Ollama keep-alive, a 0.8-second speech
+endpoint, a 15-second utterance cap, and complete-response Moonshine TTS.
+
 ## Lightweight Stack
 
 | Component | Default | Lightweight Alternative |
 |-----------|---------|------------------------|
 | STT | Moonshine Voice | Use the Tiny or Base on-device model |
 | VAD | Silero via PyTorch | **Silero ONNX** (onnxruntime only) |
-| LLM | Ollama + Qwen3 1.7B | **llama-cpp-python** + small GGUF model |
+| LLM | Ollama + Qwen3 1.7B | Pi profile uses Qwen3 0.6B |
 | TTS | Moonshine Voice | Use a small downloadable Moonshine voice |
 | Audio | PyAudio + sounddevice | sounddevice only (drop PyAudio) |
 
@@ -266,7 +284,7 @@ Moonshine downloads and caches the appropriate model on first use. To prepare
 the English model before running offline:
 
 ```bash
-moonshine-voice download --stt --language en
+moonshine-voice download --stt --language en --model-arch 2
 ```
 
 ## Lightweight LLM Setup

@@ -38,6 +38,22 @@ class OllamaBackendTests(unittest.TestCase):
         self.assertEqual(calls[0]["options"]["num_predict"], 60)
         self.assertFalse(calls[0]["think"])
 
+    def test_pi_profile_uses_small_qwen_and_persistent_keep_alive(self):
+        fake_ollama = types.SimpleNamespace(
+            chat=lambda **kwargs: {"message": {"content": "Ready."}}
+        )
+        environment = {
+            "VOICE_AGENT_PROFILE": "pi4",
+        }
+
+        with patch.dict(os.environ, environment, clear=True), patch.dict(
+            sys.modules, {"ollama": fake_ollama}
+        ):
+            backend = OllamaBackend()
+
+        self.assertEqual(backend.model, "qwen3:0.6b")
+        self.assertEqual(backend.keep_alive, "-1")
+
 
 if __name__ == "__main__":
     unittest.main()

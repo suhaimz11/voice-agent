@@ -40,6 +40,7 @@ class MoonshineSTT:
         self.model_path = resolved_path
         self.model_arch = resolved_arch
         self.model = Transcriber(model_path=resolved_path, model_arch=resolved_arch)
+        self._stream = None
 
         log_timing(
             "Moonshine model load",
@@ -49,6 +50,61 @@ class MoonshineSTT:
                 f"model_path={resolved_path}"
             ),
         )
+
+    @staticmethod
+    def _transcript_text(transcript) -> str:
+        if transcript is None:
+            return ""
+        return " ".join(
+            line.text.strip()
+            for line in transcript.lines
+            if getattr(line, "text", "").strip()
+        ).strip()
+
+    def start_stream(self, update_interval: float = 0.25) -> None:
+        """Start a fresh incremental transcription session."""
+        self.close_stream()
+        self._stream = self.model.create_stream(update_interval=update_interval)
+        self._stream.start()
+
+    def add_audio(self, audio_data: list[float], sample_rate: int = 16000) -> None:
+        if self._stream is None:
+            raise RuntimeError("Moonshine stream has not been started.")
+        self._stream.add_audio(audio_data, sample_rate)
+
+    def finish_stream(self) -> str:
+        """Finalize the active stream and return its complete transcript."""
+        if self._stream is None:
+            return ""
+        started_at = monotonic_seconds()
+        stream = self._stream
+        self._stream = None
+        try:
+            transcript = stream.stop()
+            text = self._transcript_text(transcript)
+            log_timing(
+                "Streaming transcription finalization",
+                started_at,
+                details=f"backend=moonshine, chars={len(text)}",
+            )
+            log(f"Transcription text: '{text}'")
+            return text
+        except Exception as exc:
+            log(f"Moonshine streaming transcription error: {exc}", level="error")
+            return ""
+        finally:
+            stream.close()
+
+    def close_stream(self) -> None:
+        """Release an unfinished stream without returning text."""
+        if self._stream is not None:
+            stream = self._stream
+            self._stream = None
+            try:
+                stream.stop()
+            except Exception:
+                pass
+            stream.close()
 
     def transcribe(self, audio_path: str, language: str | None = None) -> str:
         """Convert a recorded WAV file into plain text."""
@@ -63,11 +119,7 @@ class MoonshineSTT:
             inference_duration = elapsed_seconds(inference_started_at)
 
             lines = list(transcript.lines)
-            text = " ".join(
-                line.text.strip()
-                for line in lines
-                if getattr(line, "text", "").strip()
-            ).strip()
+            text = self._transcript_text(transcript)
 
             log_timing(
                 "Transcription",

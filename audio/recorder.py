@@ -1,8 +1,8 @@
 """
 Handles microphone recording for the voice agent.
 
-Records audio until silence is detected,
-then saves the result as a temporary WAV file.
+Streams audio until silence is detected. A legacy WAV capture method remains
+available for diagnostics and compatibility.
 
 Uses sounddevice for audio I/O (replaces PyAudio).
 VAD runs via openWakeWord which uses ONNX Runtime
@@ -11,6 +11,9 @@ internally — no PyTorch required.
 
 import tempfile
 import wave
+from collections import deque
+from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 import sounddevice as sd
@@ -29,6 +32,16 @@ from utils.logger import (
 SAMPLE_WIDTH = 2
 
 
+@dataclass(frozen=True)
+class StreamCaptureResult:
+    speech_detected: bool
+    captured_seconds: float
+    speech_seconds: float
+    stop_reason: str
+    max_vad_score: float
+    max_rms: float
+
+
 class AudioRecorder:
 
     def __init__(
@@ -40,10 +53,12 @@ class AudioRecorder:
         silence_duration: float = 2.5,
         no_speech_timeout: float = 4.0,
         max_record_seconds: float = 45.0,
+        minimum_speech_seconds: float = 0.3,
+        pre_speech_seconds: float = 0.3,
         input_device: int | None = None,
     ):
 
-        # Whisper performs best at 16kHz mono audio
+        # Moonshine voice models expect 16 kHz mono audio.
         self.sample_rate = sample_rate
 
         self.chunk_size = chunk_size
@@ -61,6 +76,8 @@ class AudioRecorder:
 
         # Safety cap to avoid endless recording
         self.max_record_seconds = max_record_seconds
+        self.minimum_speech_seconds = minimum_speech_seconds
+        self.pre_speech_seconds = pre_speech_seconds
 
         self.input_device = input_device
 
@@ -76,6 +93,111 @@ class AudioRecorder:
                 f"input_device={self.input_device})"
             )
         )
+
+    def stream_until_silence(
+        self,
+        on_audio: Callable[[list[float], int], None],
+        no_speech_timeout: float | None = None,
+    ) -> StreamCaptureResult:
+        """Stream one utterance to a consumer while VAD determines its endpoint."""
+        chunks_per_second = self.sample_rate / self.chunk_size
+        start_timeout = (
+            self.no_speech_timeout if no_speech_timeout is None else no_speech_timeout
+        )
+        max_chunks = max(1, int(self.max_record_seconds * chunks_per_second))
+        start_chunks = max(1, int(start_timeout * chunks_per_second))
+        silence_chunks_needed = max(1, int(self.silence_duration * chunks_per_second))
+        minimum_speech_chunks = max(
+            1, int(self.minimum_speech_seconds * chunks_per_second)
+        )
+        pre_roll_chunks = max(1, int(self.pre_speech_seconds * chunks_per_second))
+        pre_roll: deque[np.ndarray] = deque(maxlen=pre_roll_chunks)
+
+        speaking = False
+        speech_chunks = 0
+        silent_chunks = 0
+        captured_chunks = 0
+        max_vad_score = 0.0
+        max_rms = 0.0
+        stop_reason = "max_record_seconds"
+        started_at = monotonic_seconds()
+        self.vad.reset_states()
+
+        log(f"Streaming recording started (start_timeout={start_timeout:.1f}s)")
+
+        with sd.RawInputStream(
+            samplerate=self.sample_rate,
+            blocksize=self.chunk_size,
+            channels=self.channels,
+            dtype="int16",
+            device=self.input_device,
+        ) as stream:
+            for chunk_index in range(max_chunks):
+                data, _ = stream.read(self.chunk_size)
+                captured_chunks += 1
+                samples = np.frombuffer(data, dtype=np.int16).copy()
+                rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
+                vad_score = float(self.vad.predict(samples, frame_size=480))
+                max_vad_score = max(max_vad_score, vad_score)
+                max_rms = max(max_rms, rms)
+
+                if not speaking:
+                    pre_roll.append(samples)
+                    if vad_score >= self.vad_threshold:
+                        speaking = True
+                        speech_chunks = 1
+                        for buffered in pre_roll:
+                            on_audio(
+                                (buffered.astype(np.float32) / 32768.0).tolist(),
+                                self.sample_rate,
+                            )
+                        pre_roll.clear()
+                        log(
+                            "Speech detected after "
+                            f"{format_duration(elapsed_seconds(started_at))} "
+                            f"(vad={vad_score:.2f}, rms={rms:.0f})"
+                        )
+                    elif chunk_index + 1 >= start_chunks:
+                        stop_reason = "no_speech_timeout"
+                        break
+                    continue
+
+                on_audio(
+                    (samples.astype(np.float32) / 32768.0).tolist(),
+                    self.sample_rate,
+                )
+
+                if vad_score >= self.vad_threshold:
+                    speech_chunks += 1
+                    silent_chunks = 0
+                else:
+                    silent_chunks += 1
+                    if (
+                        speech_chunks >= minimum_speech_chunks
+                        and silent_chunks >= silence_chunks_needed
+                    ):
+                        stop_reason = "silence_detected"
+                        break
+
+        result = StreamCaptureResult(
+            speech_detected=speaking and speech_chunks >= minimum_speech_chunks,
+            captured_seconds=captured_chunks / chunks_per_second,
+            speech_seconds=speech_chunks / chunks_per_second,
+            stop_reason=stop_reason,
+            max_vad_score=max_vad_score,
+            max_rms=max_rms,
+        )
+        log_timing(
+            "Streaming recording",
+            started_at,
+            details=(
+                f"speech_detected={result.speech_detected}, reason={stop_reason}, "
+                f"captured={format_duration(result.captured_seconds)}, "
+                f"speech={format_duration(result.speech_seconds)}, "
+                f"max_vad={max_vad_score:.2f}, max_rms={max_rms:.0f}"
+            ),
+        )
+        return result
 
     # ---------------------------------------------------------
     def record_until_silence(

@@ -9,7 +9,9 @@ Wake Word
 """
 
 import os
+import re
 import time
+from enum import Enum, auto
 
 from audio.devices import (
     log_audio_devices,
@@ -20,6 +22,8 @@ from audio.recorder import AudioRecorder
 from stt.moonshine_stt import MoonshineSTT
 from tts.tts_engine import TTSEngine
 from agent.processor import AgentProcessor
+from agent.llm_handler import warm_llm
+from config import load_runtime_profile
 from wakeword.detector import WakeWordDetector
 from utils.logger import (
     elapsed_seconds,
@@ -34,16 +38,74 @@ from utils.logger import (
 SESSION_TIMEOUT = 10
 
 # Give speakers and microphone buffers a moment to settle after TTS.
-RESPONSE_COOLDOWN = 1.0
+class AssistantState(Enum):
+    SLEEPING = auto()
+    LISTENING = auto()
+    PROCESSING = auto()
+    SPEAKING = auto()
+    FOLLOW_UP = auto()
+    SHUTTING_DOWN = auto()
+    ERROR = auto()
 
-# Desktop defaults stay unchanged. These env vars are optional knobs for
-# later low-RAM profiles without changing normal local development.
+
+ALLOWED_STATE_TRANSITIONS = {
+    AssistantState.SLEEPING: {
+        AssistantState.LISTENING,
+        AssistantState.SHUTTING_DOWN,
+        AssistantState.ERROR,
+    },
+    AssistantState.LISTENING: {
+        AssistantState.PROCESSING,
+        AssistantState.SPEAKING,
+        AssistantState.SLEEPING,
+        AssistantState.SHUTTING_DOWN,
+        AssistantState.ERROR,
+    },
+    AssistantState.PROCESSING: {
+        AssistantState.SPEAKING,
+        AssistantState.SLEEPING,
+        AssistantState.SHUTTING_DOWN,
+        AssistantState.ERROR,
+    },
+    AssistantState.SPEAKING: {
+        AssistantState.LISTENING,
+        AssistantState.FOLLOW_UP,
+        AssistantState.SLEEPING,
+        AssistantState.SHUTTING_DOWN,
+        AssistantState.ERROR,
+    },
+    AssistantState.FOLLOW_UP: {
+        AssistantState.LISTENING,
+        AssistantState.SLEEPING,
+        AssistantState.SHUTTING_DOWN,
+        AssistantState.ERROR,
+    },
+    AssistantState.ERROR: {
+        AssistantState.LISTENING,
+        AssistantState.SLEEPING,
+        AssistantState.SHUTTING_DOWN,
+    },
+    AssistantState.SHUTTING_DOWN: set(),
+}
+
+
 STT_LANGUAGE = os.environ.get("VOICE_AGENT_STT_LANGUAGE", "en")
 MOONSHINE_MODEL_PATH = os.environ.get("VOICE_AGENT_MOONSHINE_MODEL_PATH")
 _moonshine_model_arch = os.environ.get("VOICE_AGENT_MOONSHINE_MODEL_ARCH")
 MOONSHINE_MODEL_ARCH = int(_moonshine_model_arch) if _moonshine_model_arch else None
 WAKE_WORD = os.environ.get("VOICE_AGENT_WAKE_WORD", "alexa")
 WAKE_MODEL_PATH = os.environ.get("VOICE_AGENT_WAKE_MODEL")
+
+INCOMPLETE_TRANSCRIPT = re.compile(
+    r"^(what is|what are|who is|where is|when is|why is|how do|how can|"
+    r"can you|could you|would you|tell me|explain)\s*$",
+    re.I,
+)
+
+
+def _transcript_needs_retry(text: str) -> bool:
+    cleaned = text.strip().rstrip(".,!?;:")
+    return len(cleaned) < 2 or bool(INCOMPLETE_TRANSCRIPT.match(cleaned))
 
 
 def _response_flow_details(
@@ -90,6 +152,9 @@ def main():
 
     log("Voice Agent starting")
 
+    profile = load_runtime_profile()
+    log(f"Runtime profile: {profile.name}")
+
     log_audio_devices()
 
     input_device = resolve_input_device()
@@ -97,12 +162,21 @@ def main():
 
     # Core components
     recorder = AudioRecorder(
+        silence_duration=profile.end_silence_seconds,
+        no_speech_timeout=profile.speech_start_timeout,
+        max_record_seconds=profile.maximum_utterance_seconds,
+        minimum_speech_seconds=profile.minimum_speech_seconds,
+        pre_speech_seconds=profile.pre_speech_seconds,
         input_device=input_device,
     )
 
     stt = MoonshineSTT(
         language=STT_LANGUAGE,
-        model_arch=MOONSHINE_MODEL_ARCH,
+        model_arch=(
+            MOONSHINE_MODEL_ARCH
+            if MOONSHINE_MODEL_ARCH is not None
+            else profile.moonshine_model_arch
+        ),
         model_path=MOONSHINE_MODEL_PATH,
     )
 
@@ -119,6 +193,8 @@ def main():
         input_device=input_device,
     )
 
+    warm_llm()
+
     log("System ready")
 
     tts.speak(
@@ -126,7 +202,18 @@ def main():
     )
 
     # Assistant state
-    assistant_active = False
+    state = AssistantState.SLEEPING
+
+    def transition(next_state: AssistantState) -> None:
+        nonlocal state
+        if next_state == state:
+            return
+        if next_state not in ALLOWED_STATE_TRANSITIONS[state]:
+            raise RuntimeError(
+                f"Invalid assistant state transition: {state.name} -> {next_state.name}"
+            )
+        log(f"State: {state.name} -> {next_state.name}", level="debug")
+        state = next_state
 
     last_activity_time = 0.0
 
@@ -146,7 +233,7 @@ def main():
             # Sleep mode
             # ---------------------------------------------
 
-            if not assistant_active:
+            if state == AssistantState.SLEEPING:
 
                 log("Waiting for wake word")
 
@@ -160,7 +247,7 @@ def main():
                     details="result=assistant_active",
                 )
 
-                assistant_active = True
+                transition(AssistantState.LISTENING)
 
                 last_activity_time = monotonic_seconds()
 
@@ -179,17 +266,18 @@ def main():
                 SESSION_TIMEOUT - elapsed_seconds(last_activity_time)
             )
 
-            audio_path = recorder.record_until_silence(
-                no_speech_timeout=min(
-                    recorder.no_speech_timeout,
-                    remaining_session_time
-                )
+            transition(AssistantState.LISTENING)
+            stt.start_stream()
+            capture = recorder.stream_until_silence(
+                stt.add_audio,
+                no_speech_timeout=min(recorder.no_speech_timeout, remaining_session_time),
             )
 
             recording_duration = elapsed_seconds(recording_started_at)
 
             # No speech detected
-            if audio_path is None:
+            if not capture.speech_detected:
+                stt.close_stream()
 
                 log_timing(
                     "Listening window",
@@ -206,7 +294,7 @@ def main():
                     > SESSION_TIMEOUT
                 ):
 
-                    assistant_active = False
+                    transition(AssistantState.SLEEPING)
 
                     wakeword.reset()
 
@@ -234,7 +322,7 @@ def main():
                 "Recording stage",
                 recording_started_at,
                 details=(
-                    f"turn={turn_id}, audio_path={audio_path}, "
+                    f"turn={turn_id}, streaming=True, "
                     f"speech_detected=True"
                 ),
             )
@@ -247,7 +335,7 @@ def main():
 
             transcription_started_at = monotonic_seconds()
 
-            text = stt.transcribe(audio_path)
+            text = stt.finish_stream()
 
             transcription_duration = elapsed_seconds(transcription_started_at)
 
@@ -257,19 +345,23 @@ def main():
                 details=f"turn={turn_id}, chars={len(text.strip())}",
             )
 
-            if not text or len(text.strip()) < 2:
+            if _transcript_needs_retry(text):
 
                 log_timing(
                     "Response flow total",
                     flow_started_at,
                     details=_response_flow_details(
                         turn_id=turn_id,
-                        result="empty_transcription",
+                        result="transcription_retry",
                         recording_duration=recording_duration,
                         transcription_duration=transcription_duration,
                     ),
                 )
 
+                transition(AssistantState.SPEAKING)
+                tts.speak("I didn't catch that. Please try again.")
+                last_activity_time = monotonic_seconds()
+                transition(AssistantState.FOLLOW_UP)
                 continue
 
             log(f"You: {text}")
@@ -278,6 +370,7 @@ def main():
             # Agent response
             # ---------------------------------------------
 
+            transition(AssistantState.PROCESSING)
             agent_started_at = monotonic_seconds()
 
             response = agent.process(text)
@@ -295,6 +388,7 @@ def main():
 
             if response == "__SLEEP__":
 
+                transition(AssistantState.SPEAKING)
                 tts_started_at = monotonic_seconds()
 
                 tts.speak("Going to sleep.")
@@ -310,7 +404,7 @@ def main():
                     ),
                 )
 
-                assistant_active = False
+                transition(AssistantState.SLEEPING)
 
                 wakeword.reset()
 
@@ -336,6 +430,7 @@ def main():
 
                 log("Shutdown requested by voice command")
 
+                transition(AssistantState.SPEAKING)
                 tts_started_at = monotonic_seconds()
 
                 tts.speak("Goodbye!")
@@ -365,6 +460,7 @@ def main():
                     ),
                 )
 
+                transition(AssistantState.SHUTTING_DOWN)
                 break
 
             if response == "__RESET_CONVERSATION__":
@@ -401,6 +497,7 @@ def main():
             # Text-to-speech
             # ---------------------------------------------
 
+            transition(AssistantState.SPEAKING)
             tts_started_at = monotonic_seconds()
 
             speech_completed = tts.speak(
@@ -422,6 +519,8 @@ def main():
             if not speech_completed:
 
                 last_activity_time = monotonic_seconds()
+
+                transition(AssistantState.LISTENING)
 
                 log("Assistant interrupted; listening for barge-in speech")
 
@@ -446,13 +545,14 @@ def main():
 
             cooldown_started_at = monotonic_seconds()
 
-            time.sleep(RESPONSE_COOLDOWN)
+            time.sleep(profile.response_cooldown_seconds)
 
             cooldown_duration = elapsed_seconds(cooldown_started_at)
 
             # Start the silence timeout after the assistant is ready again,
             # not while it is transcribing, thinking, or speaking.
             last_activity_time = monotonic_seconds()
+            transition(AssistantState.FOLLOW_UP)
 
             log_timing(
                 "Response flow total",
@@ -471,6 +571,7 @@ def main():
 
         except KeyboardInterrupt:
 
+            transition(AssistantState.SHUTTING_DOWN)
             log("Shutting down")
 
             tts.speak("Goodbye!")
@@ -479,6 +580,9 @@ def main():
 
         except Exception as e:
 
+            if state != AssistantState.SHUTTING_DOWN:
+                transition(AssistantState.ERROR)
+            stt.close_stream()
             log(
                 f"Main loop error: {e}",
                 level="error",

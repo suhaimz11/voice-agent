@@ -14,6 +14,7 @@ Handles:
 
 import os
 
+from config import load_runtime_profile
 from utils.logger import (
     elapsed_seconds,
     format_duration,
@@ -46,7 +47,7 @@ Keep responses:
 Avoid long paragraphs.
 """
 
-MAX_HISTORY = 12
+MAX_HISTORY = 8
 
 # -----------------------------------------------------------
 # Backend: Ollama
@@ -58,12 +59,16 @@ class OllamaBackend:
 
         from ollama import chat as ollama_chat
 
+        profile = load_runtime_profile()
         self._chat = ollama_chat
-        self.model = os.environ.get("OLLAMA_MODEL", "qwen3:1.7b")
+        self.model = os.environ.get("OLLAMA_MODEL", profile.ollama_model)
         self.num_ctx = int(os.environ.get("OLLAMA_NUM_CTX", "1024"))
         self.num_predict = int(os.environ.get("OLLAMA_NUM_PREDICT", "60"))
         self.temperature = float(os.environ.get("OLLAMA_TEMPERATURE", "0.6"))
-        self.keep_alive = os.environ.get("OLLAMA_KEEP_ALIVE", "10m")
+        self.keep_alive = os.environ.get(
+            "OLLAMA_KEEP_ALIVE",
+            profile.ollama_keep_alive,
+        )
 
         log(
             (
@@ -209,6 +214,33 @@ def reset_conversation():
     conversation_history.clear()
 
     log("Conversation history cleared.")
+
+
+def warm_llm() -> bool:
+    """Load the configured backend and model before the first user request."""
+    started_at = monotonic_seconds()
+    try:
+        backend = _get_backend()
+        backend.generate(
+            [
+                {"role": "system", "content": "Reply with exactly: ready"},
+                {"role": "user", "content": "ready"},
+            ]
+        )
+        log_timing(
+            "LLM warm-up",
+            started_at,
+            details=f"backend={_describe_backend(backend)}, result=ready",
+        )
+        return True
+    except Exception as exc:
+        log_timing(
+            "LLM warm-up failed",
+            started_at,
+            level="warning",
+            details=str(exc),
+        )
+        return False
 
 
 def ask_llm(
