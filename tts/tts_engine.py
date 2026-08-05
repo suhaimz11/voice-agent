@@ -125,7 +125,10 @@ class TTSEngine:
     def _speak_blocking(self, text: str) -> bool:
         started_at = monotonic_seconds()
         log(f"TTS started: {text}")
+        # Keep the complete utterance together so the model can preserve
+        # sentence rhythm, pauses, and question intonation.
         self._tts.say(text, speed=self.speed)
+        self._log_first_audio(started_at)
         self._tts.wait()
         log_timing(
             "TTS total",
@@ -136,6 +139,23 @@ class TTSEngine:
             ),
         )
         return True
+
+    def _log_first_audio(self, started_at: float) -> None:
+        """Measure synthesis/startup separately from the spoken duration."""
+        while self._tts.is_talking():
+            try:
+                stream = sd.get_stream()
+                if stream is not None and stream.active:
+                    log_timing(
+                        "TTS first audio",
+                        started_at,
+                        details="backend=moonshine",
+                    )
+                    return
+            except Exception:
+                # Timing diagnostics must never prevent speech playback.
+                return
+            time.sleep(0.01)
 
     def _speak_interruptible(self, text: str) -> bool:
         started_at = monotonic_seconds()

@@ -12,7 +12,7 @@ class RuntimeProfileTests(unittest.TestCase):
 
         self.assertEqual(profile.moonshine_model_arch, 2)
         self.assertEqual(profile.ollama_model, "qwen3:0.6b")
-        self.assertEqual(profile.end_silence_seconds, 0.8)
+        self.assertEqual(profile.end_silence_seconds, 0.55)
         self.assertEqual(profile.maximum_utterance_seconds, 15.0)
 
     def test_unknown_profile_is_rejected(self):

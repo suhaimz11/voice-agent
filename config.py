@@ -27,11 +27,11 @@ PROFILES = {
         ollama_model="qwen3:1.7b",
         ollama_keep_alive="10m",
         speech_start_timeout=5.0,
-        end_silence_seconds=0.9,
+        end_silence_seconds=0.55,
         minimum_speech_seconds=0.3,
         maximum_utterance_seconds=30.0,
         pre_speech_seconds=0.3,
-        response_cooldown_seconds=0.5,
+        response_cooldown_seconds=0.15,
     ),
     "pi4": RuntimeProfile(
         name="pi4",
@@ -39,11 +39,11 @@ PROFILES = {
         ollama_model="qwen3:0.6b",
         ollama_keep_alive="-1",
         speech_start_timeout=5.0,
-        end_silence_seconds=0.8,
+        end_silence_seconds=0.55,
         minimum_speech_seconds=0.3,
         maximum_utterance_seconds=15.0,
         pre_speech_seconds=0.3,
-        response_cooldown_seconds=0.35,
+        response_cooldown_seconds=0.15,
     ),
 }
 

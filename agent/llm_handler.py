@@ -223,8 +223,11 @@ def warm_llm() -> bool:
         backend = _get_backend()
         backend.generate(
             [
-                {"role": "system", "content": "Reply with exactly: ready"},
-                {"role": "user", "content": "ready"},
+                # Exercise the same prompt shape as a real turn. Ollama can
+                # then reuse the system-prompt prefix instead of doing its
+                # one-time prompt evaluation after the user starts waiting.
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": "Say ready in one word."},
             ]
         )
         log_timing(
